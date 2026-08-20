@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DOCKER DASHBOARD</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="crt">
+    <header class="topbar">
+      <div class="tabs">
+        <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+        <span class="tab active">Dashboard</span>
+      </div>
+      <div class="topbar-right">
+        <span id="conn-status" class="badge disconnected">● CONNECTING</span>
+        <span id="clock" class="clock"></span>
+      </div>
+    </header>
+
+    <div class="titlebar">DOCKER DASHBOARD</div>
+
+    <main class="grid">
+      <section class="panel containers-panel">
+        <div class="panel-title">CONTAINER STATUS</div>
+        <div class="table-wrap">
+          <table id="containers-table">
+            <thead>
+              <tr>
+                <th>CONTAINER ID</th>
+                <th>NAME</th>
+                <th>STATUS</th>
+                <th>CPU %</th>
+                <th>MEM %</th>
+                <th>NET I/O</th>
+                <th>UPTIME</th>
+              </tr>
+            </thead>
+            <tbody id="containers-body">
+              <tr><td colspan="7" class="empty">waiting for data…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel resources-panel">
+        <div class="panel-title">SYSTEM RESOURCES</div>
+        <div class="resource-rows" id="resources">
+          <div class="resource-row">
+            <span class="resource-label">CPU:</span>
+            <span class="bar" id="bar-cpu"></span>
+            <span class="resource-val" id="val-cpu">0%</span>
+          </div>
+          <div class="resource-row">
+            <span class="resource-label">RAM:</span>
+            <span class="bar" id="bar-mem"></span>
+            <span class="resource-val" id="val-mem">0%</span>
+          </div>
+          <div class="resource-sub" id="sub-mem"></div>
+          <div class="resource-row">
+            <span class="resource-label">DISK:</span>
+            <span class="bar" id="bar-disk"></span>
+            <span class="resource-val" id="val-disk">0%</span>
+          </div>
+          <div class="resource-row">
+            <span class="resource-label">NET:</span>
+            <span class="bar" id="bar-net"></span>
+            <span class="resource-val" id="val-net">0%</span>
+          </div>
+          <div class="resource-sub" id="sub-net"></div>
+        </div>
+      </section>
+
+      <section class="panel events-panel">
+        <div class="panel-title">EVENTS LOG</div>
+        <div class="events-wrap" id="events"></div>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <span>[Press R to reconnect | <span id="poll-rate">2s</span> update]</span>
+      <span class="prompt">root@app-gateway-01:~$ <span class="cursor">_</span></span>
+    </footer>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

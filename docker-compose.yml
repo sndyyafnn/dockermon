@@ -1,0 +1,24 @@
+services:
+  docker-monitor:
+    build: .
+    image: docker-monitor:latest
+    container_name: docker-monitor
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - POLL_INTERVAL_MS=2000
+    volumes:
+      # Required: lets the app talk to the Docker daemon to list containers,
+      # read stats, and stream events. Read-only is enough.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # Optional: uncomment the two lines below for more accurate HOST-level
+      # CPU / RAM / disk numbers in the "System Resources" panel (otherwise
+      # those numbers reflect the container's own cgroup view).
+      # - /proc:/host/proc:ro
+      # - /sys:/host/sys:ro
+    # Optional: needed alongside the /proc,/sys mounts above for fully
+    # accurate host metrics via the systeminformation library.
+    # pid: host
