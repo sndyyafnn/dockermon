@@ -126,6 +126,14 @@ async function pollContainers() {
   try {
     const containers = await docker.listContainers({ all: true });
     const snapshots = await Promise.all(containers.map(getContainerSnapshot));
+    snapshots.sort((a, b) => {
+      const aRunning = a.status === 'RUNNING';
+      const bRunning = b.status === 'RUNNING';
+      if (aRunning !== bRunning) return aRunning ? -1 : 1; // running first
+      // within running/stopped groups, highest CPU first, then MEM as tiebreaker
+      if (b.cpu !== a.cpu) return b.cpu - a.cpu;
+      return b.mem - a.mem;
+    });
     io.emit('containers', snapshots);
   } catch (err) {
     io.emit('error', { message: 'Failed to reach Docker daemon', detail: err.message });
