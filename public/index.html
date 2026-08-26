@@ -14,6 +14,7 @@
         <span class="tab active">Dashboard</span>
       </div>
       <div class="topbar-right">
+        <button type="button" id="alerts-toggle" class="badge alerts-off">🔕 ALERTS OFF</button>
         <span id="conn-status" class="badge disconnected">● CONNECTING</span>
         <span id="clock" class="clock"></span>
       </div>
@@ -23,22 +24,45 @@
 
     <main class="grid">
       <section class="panel containers-panel">
-        <div class="panel-title">CONTAINER STATUS <span class="panel-subtitle">— live, sorted by CPU</span></div>
+        <div class="panel-title-row">
+          <div class="panel-title">CONTAINER STATUS</div>
+          <div class="panel-count" id="container-count"></div>
+        </div>
+        <div class="controls-bar">
+          <label class="search-field">
+            <span class="search-prompt">grep&gt;</span>
+            <input type="text" id="search-input" placeholder="filter by name…" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="status-filters" id="status-filters">
+            <button type="button" class="filter-btn active" data-filter="all">[ALL]</button>
+            <button type="button" class="filter-btn" data-filter="running">[RUNNING]</button>
+            <button type="button" class="filter-btn" data-filter="stopped">[STOPPED]</button>
+          </div>
+        </div>
+        <div class="controls-bar threshold-bar">
+          <span class="threshold-label">⚠ warn if CPU/MEM ≥</span>
+          <input type="number" id="threshold-pct" class="threshold-input" value="80" min="1" max="100" />
+          <span class="threshold-label">% for</span>
+          <input type="number" id="threshold-sec" class="threshold-input" value="15" min="1" max="600" />
+          <span class="threshold-label">s sustained</span>
+        </div>
         <div class="table-wrap">
           <table id="containers-table">
             <thead>
               <tr>
-                <th>CONTAINER ID</th>
-                <th>NAME</th>
-                <th>STATUS</th>
-                <th>CPU %</th>
-                <th>MEM %</th>
-                <th>NET I/O</th>
-                <th>UPTIME</th>
+                <th class="col-toggle"></th>
+                <th data-sort="id">CONTAINER ID<span class="sort-arrow"></span></th>
+                <th data-sort="name">NAME<span class="sort-arrow"></span></th>
+                <th data-sort="status">STATUS<span class="sort-arrow"></span></th>
+                <th data-sort="health">HEALTH<span class="sort-arrow"></span></th>
+                <th data-sort="cpu">CPU %<span class="sort-arrow"></span></th>
+                <th data-sort="mem">MEM %<span class="sort-arrow"></span></th>
+                <th data-sort="net">NET I/O<span class="sort-arrow"></span></th>
+                <th data-sort="uptime">UPTIME<span class="sort-arrow"></span></th>
               </tr>
             </thead>
             <tbody id="containers-body">
-              <tr><td colspan="7" class="empty">waiting for data…</td></tr>
+              <tr><td colspan="9" class="empty">waiting for data…</td></tr>
             </tbody>
           </table>
         </div>
@@ -80,7 +104,7 @@
 
     <footer class="statusbar">
       <span>[Press R to reconnect | <span id="poll-rate">2s</span> update]</span>
-      <span class="prompt">root@app-gateway-01:~$ <span class="cursor">_</span></span>
+      <span class="prompt">root@app-gateway-01:~# <span class="cursor">_</span></span>
     </footer>
   </div>
 

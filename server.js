@@ -82,6 +82,34 @@ function netIOFromStats(stats) {
   return { rx, tx };
 }
 
+function formatPorts(ports) {
+  if (!ports || !ports.length) return [];
+  return ports.map((p) => {
+    if (p.PublicPort) {
+      return `${p.IP || '0.0.0.0'}:${p.PublicPort} -> ${p.PrivatePort}/${p.Type}`;
+    }
+    return `${p.PrivatePort}/${p.Type} (not published)`;
+  });
+}
+
+// Docker multiplexes stdout/stderr into a single stream with an 8-byte frame
+// header per chunk when the container was NOT created with a TTY. Strip
+// those headers so raw log text is readable. TTY containers have no framing.
+function demuxDockerLogBuffer(buffer, isTty) {
+  if (isTty) return buffer.toString('utf8');
+  let offset = 0;
+  const lines = [];
+  while (offset + 8 <= buffer.length) {
+    const size = buffer.readUInt32BE(offset + 4);
+    const start = offset + 8;
+    const end = start + size;
+    if (end > buffer.length) break;
+    lines.push(buffer.slice(start, end).toString('utf8'));
+    offset = end;
+  }
+  return lines.join('');
+}
+
 async function getContainerSnapshot(containerInfo) {
   const container = docker.getContainer(containerInfo.Id);
   const base = {
@@ -89,6 +117,9 @@ async function getContainerSnapshot(containerInfo) {
     name: containerInfo.Names[0].replace(/^\//, ''),
     image: containerInfo.Image,
     status: containerInfo.State === 'running' ? 'RUNNING' : containerInfo.State.toUpperCase(),
+    health: 'none',
+    restartCount: 0,
+    ports: formatPorts(containerInfo.Ports),
     cpu: 0,
     mem: 0,
     memUsage: 0,
@@ -99,6 +130,12 @@ async function getContainerSnapshot(containerInfo) {
   };
 
   if (containerInfo.State !== 'running') {
+    try {
+      const inspect = await container.inspect();
+      base.restartCount = inspect.RestartCount || 0;
+    } catch {
+      // ignore - container may have been removed mid-poll
+    }
     return base;
   }
 
@@ -115,6 +152,8 @@ async function getContainerSnapshot(containerInfo) {
     base.netRx = rx;
     base.netTx = tx;
     base.uptime = humanizeUptime(inspect.State.StartedAt);
+    base.restartCount = inspect.RestartCount || 0;
+    base.health = inspect.State.Health ? inspect.State.Health.Status : 'none';
   } catch (err) {
     // Container may have stopped mid-poll; fall back gracefully
   }
@@ -214,11 +253,63 @@ function attachDockerEventStream() {
   });
 }
 
+// ---------- On-demand container detail (expanded row): logs, env, ports, disk ----------
+async function getContainerDetail(id) {
+  const container = docker.getContainer(id);
+  const inspect = await container.inspect({ size: true });
+
+  let logText = '';
+  try {
+    const logBuffer = await container.logs({
+      stdout: true,
+      stderr: true,
+      tail: 80,
+      timestamps: true,
+      follow: false,
+    });
+    logText = demuxDockerLogBuffer(logBuffer, inspect.Config.Tty);
+  } catch (err) {
+    logText = `(could not read logs: ${err.message})`;
+  }
+
+  return {
+    id: id.substring(0, 12),
+    name: inspect.Name.replace(/^\//, ''),
+    env: inspect.Config.Env || [],
+    ports: formatPorts(
+      Object.entries(inspect.NetworkSettings.Ports || {}).flatMap(([privatePort, bindings]) => {
+        const [portNum, type] = privatePort.split('/');
+        if (!bindings) return [{ PrivatePort: portNum, Type: type }];
+        return bindings.map((b) => ({
+          IP: b.HostIp,
+          PublicPort: b.HostPort,
+          PrivatePort: portNum,
+          Type: type,
+        }));
+      })
+    ),
+    restartCount: inspect.RestartCount || 0,
+    health: inspect.State.Health ? inspect.State.Health.Status : 'none',
+    sizeRw: inspect.SizeRw || 0,
+    sizeRootFs: inspect.SizeRootFs || 0,
+    logs: logText.split('\n').filter((l) => l.length > 0).slice(-80),
+  };
+}
+
 // ---------- Socket.IO wiring ----------
 io.on('connection', (socket) => {
   socket.emit('events_snapshot', eventLog);
   pollContainers();
   pollSystemResources();
+
+  socket.on('get_container_detail', async (id) => {
+    try {
+      const detail = await getContainerDetail(id);
+      socket.emit('container_detail', detail);
+    } catch (err) {
+      socket.emit('container_detail_error', { id, message: err.message });
+    }
+  });
 });
 
 // ---------- Boot ----------
