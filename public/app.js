@@ -27,14 +27,29 @@ const isGuestPage = location.pathname === '/guest';
 let guestMode = isGuestPage;
 let isAuthenticated = !guestMode;
 
-// ---------- Guest mode UI ----------
-function enterGuestMode() {
-  if (guestMode) return;
-  guestMode = true;
+// ---------- Init: apply guest mode UI classes if on /guest page ----------
+if (isGuestPage) {
   mainEl.classList.add('guest-mode');
   topbarRightEl.classList.add('topbar-guest');
   titlebarEl.classList.add('titlebar-guest');
   footerEl.classList.add('footer-guest');
+  // Hide admin conn-badge on guest page
+  if (connBadge) connBadge.style.display = 'none';
+  guestBannerEl.classList.remove('hidden');
+  document.querySelectorAll('.guest-overview-panel, .guest-cards-panel, .guest-resources-panel, #guest-live-indicator, #guest-last-update').forEach(el => el.classList.remove('hidden'));
+} else {
+  // Admin page: ensure guest banner stays hidden
+  guestBannerEl.classList.add('hidden');
+}
+
+// ---------- Guest mode UI ----------
+function enterGuestMode() {
+  mainEl.classList.add('guest-mode');
+  topbarRightEl.classList.add('topbar-guest');
+  titlebarEl.classList.add('titlebar-guest');
+  footerEl.classList.add('footer-guest');
+  // Hide admin conn-badge when entering guest mode
+  if (connBadge) connBadge.style.display = 'none';
   guestBannerEl.classList.remove('hidden');
   // Show guest-only elements
   document.querySelectorAll('.guest-overview-panel, .guest-cards-panel, .guest-resources-panel, #guest-live-indicator, #guest-last-update').forEach(el => el.classList.remove('hidden'));
@@ -181,22 +196,25 @@ function tickClock() {
 setInterval(tickClock, 1000);
 tickClock();
 
+// ---------- Connection status + guest live indicator ----------
 socket.on('connect', () => {
-  connBadge.textContent = '● LIVE';
-  connBadge.className = 'badge connected';
-  // If not in guest mode, request visibility config
-  if (!guestMode) {
-    socket.emit('get_visibility_config');
-  }
   if (guestMode) {
+    // Guest page uses the dedicated live indicator, not the admin conn-badge
     document.getElementById('guest-live-indicator').classList.remove('hidden');
+  } else {
+    connBadge.textContent = '● CONNECTED';
+    connBadge.className = 'badge connected';
+    socket.emit('get_visibility_config');
   }
 });
 
 socket.on('disconnect', () => {
-  connBadge.textContent = '● DISCONNECTED';
-  connBadge.className = 'badge disconnected';
-  document.getElementById('guest-live-indicator').classList.add('hidden');
+  if (guestMode) {
+    document.getElementById('guest-live-indicator').classList.add('hidden');
+  } else {
+    connBadge.textContent = '● DISCONNECTED';
+    connBadge.className = 'badge disconnected';
+  }
 });
 
 // ---------- Visibility config from server ----------

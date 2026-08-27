@@ -98,7 +98,8 @@ body {
 
 .topbar-right { display: flex; align-items: center; gap: 14px; font-size: 12px; }
 
-/* ---------- Badges ---------- */
+.hidden { display: none !important; }
+[hidden] { display: none !important; }
 .badge {
   padding: 2px 8px;
   border-radius: 3px;
