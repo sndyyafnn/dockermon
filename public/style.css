@@ -441,7 +441,56 @@ tbody tr.row-crit:hover { background: rgba(255,92,87,0.11); }
 .prompt { color: var(--green); }
 .cursor { animation: blink 1s step-start infinite; }
 
-/* ---------- Guest mode ---------- */
+/* ---------- Responsive Tailwind-driven layout ---------- */
+/* The existing theme classes are kept. These additions use Tailwind's
+   responsive prefixes (sm:, md:, lg:) defined in the Tailwind config
+   to match the existing visual language. */
+
+/* Tablet and below: stack the grid to single column */
+@media (max-width: 1023px) {
+  .grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto;
+  }
+  .containers-panel { grid-column: 1; grid-row: 1; }
+  .resources-panel { grid-column: 1; grid-row: 2; }
+  .events-panel { grid-column: 1; grid-row: 3; }
+  .table-wrap { max-height: 360px; }
+  .crt { border-radius: 8px; }
+  body { padding: 12px; }
+}
+
+/* Mobile: further reduce sizes */
+@media (max-width: 639px) {
+  .crt { border-radius: 6px; }
+  body { padding: 8px; font-size: 10px; }
+  .topbar { padding: 6px 10px; }
+  .topbar-right { gap: 6px; font-size: 10px; }
+  .titlebar { padding: 6px 10px; font-size: 11px; }
+  .panel-title-row { padding: 6px 10px; }
+  .controls-bar { padding: 6px 10px; flex-wrap: wrap; }
+  .search-field { min-width: 100px; flex: 1 1 120px; }
+  .status-filters { gap: 4px; }
+  .filter-btn { padding: 2px 6px; font-size: 10px; }
+  .threshold-input { width: 36px; font-size: 10px; }
+  .table-wrap { max-height: 280px; }
+  thead th { padding: 5px 8px; font-size: 10px; }
+  tbody td { padding: 4px 8px; font-size: 10px; }
+  .resource-row { grid-template-columns: 32px 1fr 40px; font-size: 10px; }
+  .resource-rows { padding: 10px; gap: 6px; }
+  .events-wrap { height: 140px; font-size: 10px; }
+  .statusbar { padding: 6px 10px; font-size: 10px; }
+  .detail-panel { padding: 8px 10px; font-size: 10px; }
+  .detail-logs { max-height: 160px; }
+  .panel-title { font-size: 10px; padding: 6px 10px; }
+  .sort-arrow { display: none !important; }
+  .vis-toggle-col { padding: 6px 2px; }
+  .vis-toggle-col-cell { padding: 4px 2px; }
+  .vis-toggle-btn { padding: 1px 3px; font-size: 9px; }
+  .vis-indicator { width: 14px; height: 14px; font-size: 8px; }
+}
+
+/* Ensure guest banner is visible on all devices */
 #guest-banner {
   position: fixed;
   top: 0;
@@ -474,21 +523,23 @@ tbody tr.row-crit:hover { background: rgba(255,92,87,0.11); }
   letter-spacing: 1px;
 }
 
-/* Guest mode: hide admin controls */
+/* Hide admin-only controls in guest mode on all devices */
 main.guest-mode .controls-bar { display: none; }
 main.guest-mode .search-field { display: none; }
 main.guest-mode .status-filters { display: none; }
 main.guest-mode .threshold-bar { display: none; }
 main.guest-mode .panel-title-row .panel-count { display: none; }
+main.guest-mode .vis-toggle-col { display: none !important; }
+main.guest-mode .vis-toggle-col-cell { display: none !important; }
 
-/* Guest mode: topbar / footer / titlebar */
+/* Guest mode: hide topbar items that don't apply */
 .topbar-guest .badge { display: none; }
 .topbar-guest #generate-guest-btn { display: none !important; }
 .topbar-guest #conn-status { display: none; }
 .topbar-guest #clock { display: none; }
 
+/* Hide titlebar and footer in guest mode */
 .titlebar-guest { display: none; }
-
 .footer-guest { display: none; }
 
 /* Detail rows hidden in guest mode */
@@ -530,5 +581,93 @@ main.guest-mode .detail-row { display: none !important; }
   .detail-panel { grid-template-columns: 1fr; }
   .detail-logs { grid-column: 1; }
   .detail-meta { grid-column: 1; }
+}
+
+/* ---------- Login page ---------- */
+.login-crt { max-width: 420px; }
+.login-body {
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.login-prompt {
+  font-size: 11px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  padding: 10px 14px;
+  letter-spacing: 0.5px;
+}
+.login-prompt .prompt-label { color: var(--green-dim); margin-right: 8px; }
+.login-prompt .prompt-text { color: var(--text-dim); }
+.login-form { display: flex; flex-direction: column; gap: 12px; }
+.form-row { display: flex; flex-direction: column; gap: 6px; }
+.form-label {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.form-input {
+  background: #05070a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: 3px;
+  outline: none;
+  letter-spacing: 0.5px;
+}
+.form-input:focus { border-color: var(--green-dim); }
+.form-input::placeholder { color: var(--text-dim); opacity: 0.5; }
+.form-error {
+  font-size: 11px;
+  color: var(--red);
+  background: rgba(255,92,87,0.07);
+  border: 1px solid #7a2b28;
+  padding: 8px 12px;
+  border-radius: 3px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.form-error .error-marker { font-weight: 700; }
+.login-btn {
+  background: var(--green);
+  color: #05070a;
+  border: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  padding: 10px 16px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: 600;
+  margin-top: 4px;
+  transition: opacity 0.15s;
+}
+.login-btn:hover { opacity: 0.85; }
+.login-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.login-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.login-hint .hint-label { color: var(--green-dim); letter-spacing: 1px; }
+.login-hint .hint-text { color: var(--text-dim); }
+.login-hint .hint-code {
+  font-family: var(--mono);
+  color: var(--green);
+  background: rgba(61,220,132,0.06);
+  border: 1px solid var(--border);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 10px;
 }
 

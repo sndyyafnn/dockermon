@@ -1,29 +1,119 @@
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const Docker = require('dockerode');
 const si = require('systeminformation');
+const session = require('express-session');
 
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+
+// ---------- Guest visibility config (persisted to guest-config.json) ----------
+const GUEST_CONFIG_PATH = path.join(__dirname, 'guest-config.json');
+let guestConfig;
+
+function loadGuestConfig() {
+  try {
+    const raw = fs.readFileSync(GUEST_CONFIG_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.visibleContainerIds)) {
+      return { version: 1, visibleContainerIds: parsed.visibleContainerIds };
+    }
+  } catch {}
+  return { version: 1, visibleContainerIds: [] };
+}
+
+function saveGuestConfig() {
+  try {
+    fs.writeFileSync(GUEST_CONFIG_PATH, JSON.stringify(guestConfig, null, 2), 'utf8');
+  } catch {}
+}
+
+guestConfig = loadGuestConfig();
+
+function setContainerVisibility(ids) {
+  guestConfig.visibleContainerIds = ids.map(String).filter(Boolean);
+  saveGuestConfig();
+}
+
+function isContainerVisible(id) {
+  return guestConfig.visibleContainerIds.includes(String(id));
+}
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
+// ---------- Session & auth ----------
+const SESSION_SECRET = process.env.SESSION_SECRET || 'docker-monitor-session-secret-2024';
+
+const CRED_USERNAME = process.env.ADMIN_USER || 'admin';
+const CRED_PASSWORD = process.env.ADMIN_PASS || 'admin';
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 8 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax' }
+}));
+
+// ---------- Body parsing (required for JSON POST bodies) ----------
+app.use(express.json());
+
+// ---------- Auth middleware: protect dashboard routes ----------
+// Guest mode (read-only, via ?guest=<token>) bypasses login.
+// Admin access requires a valid session.
+app.use((req, res, next) => {
+  const isGuest = req.query && req.query.guest ? true : false;
+  if (isGuest) return next(); // guest read-only access
+  if (req.session && req.session.auth) return next(); // authenticated admin
+  // For navigation requests to the root or dashboard HTML, redirect to login
+  if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html')) {
+    return res.redirect('/login.html');
+  }
+  // For API calls and static assets (JS, CSS, images), allow without auth
+  if (req.path.startsWith('/api/') ||
+      req.path.endsWith('.js') ||
+      req.path.endsWith('.css') ||
+      req.path.endsWith('.html') && req.path !== '/index.html') {
+    return next();
+  }
+  // Default: allow (e.g. favicon, other static assets)
+  next();
+});
+
+// Login endpoint
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (username === CRED_USERNAME && password === CRED_PASSWORD) {
+    req.session.auth = true;
+    return res.json({ ok: true });
+  }
+  return res.status(401).json({ ok: false, error: 'invalid credentials' });
+});
+
+// Logout endpoint
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => { res.json({ ok: true }); });
+});
+
+// ---------- Static assets ----------
+app.use(express.static(path.join(__dirname, 'public')));
+
 const PORT = process.env.PORT || 3000;
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '2000', 10);
 const MAX_EVENTS = 200;
 
-app.use(express.static(path.join(__dirname, 'public')));
-
 // ---------- In-memory rolling event log ----------
 const eventLog = [];
-function pushEvent(line) {
+function pushEvent(line, guestSafe = true) {
   const entry = { time: new Date().toISOString(), line };
   eventLog.push(entry);
   if (eventLog.length > MAX_EVENTS) eventLog.shift();
-  io.emit('event', entry);
+  io.to('admin').emit('event', entry);
+  if (guestSafe) {
+    io.to('guest').emit('event', entry);
+  }
 }
 
 // ---------- Helpers ----------
@@ -161,19 +251,30 @@ async function getContainerSnapshot(containerInfo) {
   return base;
 }
 
+// Sort: running first, then by CPU desc, then MEM desc
+function sortContainers(containers) {
+  return containers.sort((a, b) => {
+    const aRunning = a.status === 'RUNNING';
+    const bRunning = b.status === 'RUNNING';
+    if (aRunning !== bRunning) return aRunning ? -1 : 1;
+    if (b.cpu !== a.cpu) return b.cpu - a.cpu;
+    return b.mem - a.mem;
+  });
+}
+
+// ---------- Polling ----------
 async function pollContainers() {
   try {
     const containers = await docker.listContainers({ all: true });
     const snapshots = await Promise.all(containers.map(getContainerSnapshot));
-    snapshots.sort((a, b) => {
-      const aRunning = a.status === 'RUNNING';
-      const bRunning = b.status === 'RUNNING';
-      if (aRunning !== bRunning) return aRunning ? -1 : 1; // running first
-      // within running/stopped groups, highest CPU first, then MEM as tiebreaker
-      if (b.cpu !== a.cpu) return b.cpu - a.cpu;
-      return b.mem - a.mem;
-    });
-    io.emit('containers', snapshots);
+    const sorted = sortContainers(snapshots);
+
+    const visibleSet = new Set(guestConfig.visibleContainerIds);
+    const visibleOnly = sorted.filter((c) => visibleSet.has(c.id));
+
+    // Admin room gets full list, guest room gets filtered list
+    io.to('admin').emit('containers', sorted);
+    io.to('guest').emit('containers', visibleOnly);
   } catch (err) {
     io.emit('error', { message: 'Failed to reach Docker daemon', detail: err.message });
   }
@@ -210,7 +311,7 @@ async function pollSystemResources() {
       netRxSec = netStats.reduce((s, n) => s + (n.rx_sec || 0), 0);
       netTxSec = netStats.reduce((s, n) => s + (n.tx_sec || 0), 0);
     }
-    const netPercent = Math.min(100, ((netRxSec + netTxSec) / (125 * 1024 * 1024)) * 100); // relative to ~1Gbps
+    const netPercent = Math.min(100, ((netRxSec + netTxSec) / (125 * 1024 * 1024)) * 100);
 
     io.emit('system', {
       cpu: { percent: cpuPercent },
@@ -232,7 +333,7 @@ function describeDockerEvent(evt) {
 function attachDockerEventStream() {
   docker.getEvents({}, (err, stream) => {
     if (err) {
-      pushEvent(`ERROR attaching to docker event stream: ${err.message}`);
+      pushEvent(`ERROR attaching to docker event stream: ${err.message}`, false);
       return;
     }
     stream.on('data', (chunk) => {
@@ -243,13 +344,15 @@ function attachDockerEventStream() {
         .forEach((line) => {
           try {
             const evt = JSON.parse(line);
-            pushEvent(describeDockerEvent(evt));
+            const actorId = evt.Actor?.ID?.substring(0, 12) || null;
+            const guestSafe = !actorId || isContainerVisible(actorId);
+            pushEvent(describeDockerEvent(evt), guestSafe);
           } catch {
             // ignore malformed chunks
           }
         });
     });
-    stream.on('error', (e) => pushEvent(`event stream error: ${e.message}`));
+    stream.on('error', (e) => pushEvent(`event stream error: ${e.message}`, false));
   });
 }
 
@@ -298,11 +401,40 @@ async function getContainerDetail(id) {
 
 // ---------- Socket.IO wiring ----------
 io.on('connection', (socket) => {
+  const guestMode = socket.handshake.auth?.guestMode === true;
+  const guestToken = socket.handshake.auth?.guestToken || '';
+
+  // Join the appropriate room so polls can target admin vs guest sockets
+  if (guestMode) {
+    socket.join('guest');
+  } else {
+    socket.join('admin');
+  }
+
   socket.emit('events_snapshot', eventLog);
-  pollContainers();
   pollSystemResources();
 
+  // ---- Admin-only events ----
+
+  // Set which containers are visible to guests (admin only)
+  socket.on('set_container_visibility', (ids) => {
+    if (guestMode) return; // reject from guests
+    setContainerVisibility(ids);
+    io.emit('visibility_updated', { visibleIds: guestConfig.visibleContainerIds });
+  });
+
+  // Get current visibility config (admin only)
+  socket.on('get_visibility_config', () => {
+    if (guestMode) return;
+    socket.emit('visibility_config', { visibleIds: guestConfig.visibleContainerIds });
+  });
+
   socket.on('get_container_detail', async (id) => {
+    // Enforce visibility in guest mode: reject detail requests for non-visible containers
+    if (guestMode && !isContainerVisible(id)) {
+      socket.emit('container_detail_error', { id, message: 'Container is not visible in guest view' });
+      return;
+    }
     try {
       const detail = await getContainerDetail(id);
       socket.emit('container_detail', detail);
@@ -313,7 +445,7 @@ io.on('connection', (socket) => {
 });
 
 // ---------- Boot ----------
-pushEvent('docker-monitor server started');
+pushEvent('docker-monitor server started', false);
 attachDockerEventStream();
 setInterval(pollContainers, POLL_INTERVAL_MS);
 setInterval(pollSystemResources, POLL_INTERVAL_MS);

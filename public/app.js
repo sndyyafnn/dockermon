@@ -1,4 +1,9 @@
-const socket = io();
+const socket = io({
+  auth: {
+    guestMode: new URLSearchParams(window.location.search).get('guest') ? true : false,
+    guestToken: new URLSearchParams(window.location.search).get('guest') || ''
+  }
+});
 
 const connBadge = document.getElementById('conn-status');
 const clockEl = document.getElementById('clock');
@@ -18,6 +23,7 @@ const footerEl = document.querySelector('footer');
 const guestBannerEl = document.getElementById('guest-banner');
 const generateGuestBtn = document.getElementById('generate-guest-btn');
 const copyGuestUrlBtn = document.getElementById('copy-guest-url-btn');
+const logoutBtn = document.getElementById('logout-btn');
 
 // ---------- Guest mode ----------
 function parseGuestToken() {
@@ -26,7 +32,17 @@ function parseGuestToken() {
 }
 
 let guestMode = false;
+let isAuthenticated = false;
 const GUEST_TOKEN = parseGuestToken();
+
+// Detect guest mode from URL or existing banner state
+function detectGuestMode() {
+  // URL parameter takes precedence
+  if (GUEST_TOKEN) return true;
+  // If the banner was already made visible by something else, we're in guest mode
+  if (!guestBannerEl.classList.contains('hidden')) return true;
+  return false;
+}
 
 function enterGuestMode() {
   if (guestMode) return;
@@ -36,6 +52,13 @@ function enterGuestMode() {
   titlebarEl.classList.add('titlebar-guest');
   footerEl.classList.add('footer-guest');
   guestBannerEl.classList.remove('hidden');
+  document.getElementById('guest-token-display').textContent = GUEST_TOKEN;
+  // Reconnect socket with guest auth
+  if (socket.io?.connected) {
+    socket.io.auth.guestMode = true;
+    socket.io.auth.guestToken = GUEST_TOKEN;
+    socket.connect();
+  }
 }
 
 function exitGuestMode() {
@@ -107,19 +130,36 @@ function fallbackCopy(text) {
   document.body.removeChild(ta);
 }
 
-// ---------- Guest mode init (run after DOM is ready, before first render) ----------
-if (GUEST_TOKEN) {
+// ---------- Guest mode init ----------
+if (detectGuestMode()) {
   enterGuestMode();
-  document.getElementById('guest-token-display').textContent = GUEST_TOKEN;
 }
 
 function updateGuestButtonVisibility() {
-  const show = !guestMode;
+  const show = !guestMode && isAuthenticated;
   generateGuestBtn.style.display = show ? '' : 'none';
   copyGuestUrlBtn.style.display = (show && copyGuestUrlBtn.dataset.guestUrl) ? '' : 'none';
+  logoutBtn.style.display = show ? '' : 'none';
 }
 
 updateGuestButtonVisibility();
+
+// ---------- Auth status (admin session) ----------
+// Detect auth state: if we loaded index.html, the middleware passed us,
+// which means we have a valid session (or we're in guest mode).
+isAuthenticated = !guestMode;
+
+// Logout handler
+logoutBtn.addEventListener('click', async () => {
+  try {
+    await fetch('/api/logout', { method: 'POST' });
+  } catch {}
+  window.location.href = '/login.html';
+});
+
+// ---------- Container visibility state (admin feature) ----------
+let visibilityConfig = { visibleIds: [] };
+const visibilityToggleBtns = new Map(); // id -> button element
 
 // ---------- Container table state ----------
 let latestContainers = [];
@@ -130,6 +170,13 @@ let searchQuery = '';
 let statusFilter = 'all';
 let sortKey = 'cpu';
 let sortDir = 'desc'; // 'asc' | 'desc'
+
+// ---------- Visibility filtering for guests (defense-in-depth) ----------
+function filterByVisibility(containers) {
+  if (!guestMode) return containers;
+  const visible = new Set(visibilityConfig.visibleIds);
+  return containers.filter((c) => visible.has(c.id));
+}
 
 // ---------- Alerts state (Phase 3) ----------
 let alertsEnabled = false;
@@ -219,11 +266,33 @@ tickClock();
 socket.on('connect', () => {
   connBadge.textContent = '● LIVE';
   connBadge.className = 'badge connected';
+  // If not in guest mode, request visibility config
+  if (!guestMode) {
+    socket.emit('get_visibility_config');
+  }
 });
 
 socket.on('disconnect', () => {
   connBadge.textContent = '● DISCONNECTED';
   connBadge.className = 'badge disconnected';
+});
+
+// ---------- Visibility config from server ----------
+socket.on('visibility_config', (config) => {
+  visibilityConfig = config;
+  // Re-render if we have containers loaded
+  if (latestContainers.length) {
+    renderVisibilityToggles(latestContainers);
+    renderContainers();
+  }
+});
+
+socket.on('visibility_updated', (config) => {
+  visibilityConfig = config;
+  if (latestContainers.length) {
+    renderVisibilityToggles(latestContainers);
+    renderContainers();
+  }
 });
 
 // ---------- Filtering / sorting ----------
@@ -446,16 +515,76 @@ function requestDetail(id) {
   socket.emit('get_container_detail', id);
 }
 
+// ---------- Admin visibility toggle rendering ----------
+function renderVisibilityToggles(containers) {
+  // Remove old toggle buttons
+  visibilityToggleBtns.forEach((btn) => btn.remove());
+  visibilityToggleBtns.clear();
+
+  if (guestMode) return;
+
+  containers.forEach((c) => {
+    // Find the row's VIS cell (the td with vis-toggle-col-cell class in the correct row)
+    const row = document.querySelector(`#containers-table tbody tr[data-id="${c.id}"]`);
+    if (!row) return;
+    const visCell = row.querySelector('.vis-toggle-col-cell');
+    if (!visCell) return;
+
+    const visible = visibilityConfig.visibleIds.includes(c.id);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `vis-toggle-btn ${visible ? 'vis-on' : 'vis-off'}`;
+    btn.dataset.id = c.id;
+    btn.title = visible ? 'Click to hide from guest view' : 'Click to show in guest view';
+    btn.innerHTML = visible ? '<span class="vis-icon">👁</span>' : '<span class="vis-icon">🚫</span>';
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const currentVisible = visibilityConfig.visibleIds.includes(c.id);
+      let newIds;
+      if (currentVisible) {
+        newIds = visibilityConfig.visibleIds.filter((id) => id !== c.id);
+      } else {
+        newIds = [...visibilityConfig.visibleIds, c.id];
+      }
+      socket.emit('set_container_visibility', newIds);
+    });
+
+    // Clear existing button in this cell, then add new one
+    visCell.innerHTML = '';
+    visCell.appendChild(btn);
+    visibilityToggleBtns.set(c.id, btn);
+  });
+}
+
+// ---------- Main render ----------
 function renderContainers() {
-  const rows = applyFilters(latestContainers);
-  containerCountEl.textContent = `${rows.length} / ${latestContainers.length} shown`;
+  let containers = latestContainers;
+
+  // Apply visibility filtering for guests (defense-in-depth — server already filters)
+  containers = filterByVisibility(containers);
+
+  const rows = applyFilters(containers);
+  const totalShown = rows.length;
+  const totalAvailable = latestContainers.length;
+  const visibleCount = visibilityConfig.visibleIds.length;
+
+  if (guestMode) {
+    containerCountEl.textContent = `${totalShown} visible to guests`;
+  } else {
+    containerCountEl.textContent = `${totalShown} / ${totalAvailable} shown  ·  ${visibleCount} visible to guests`;
+  }
 
   if (!latestContainers.length) {
-    containersBody.innerHTML = '<tr><td colspan="9" class="empty">waiting for data…</td></tr>';
+    containersBody.innerHTML = '<tr><td colspan="10" class="empty">waiting for data…</td></tr>';
+    renderVisibilityToggles([]);
     return;
   }
   if (!rows.length) {
-    containersBody.innerHTML = '<tr><td colspan="9" class="empty">no containers match filters</td></tr>';
+    containersBody.innerHTML = guestMode
+      ? '<tr><td colspan="10" class="empty">no containers visible to guests</td></tr>'
+      : '<tr><td colspan="10" class="empty">no containers match filters</td></tr>';
+    renderVisibilityToggles([]);
     return;
   }
 
@@ -471,9 +600,41 @@ function renderContainers() {
         .join(' ');
       const alertBadge = alert ? `<span class="alert-badge ${alert.level}">${alert.label}</span>` : '';
       const h = history.get(c.id) || { cpu: [], mem: [], netRate: [] };
+      const visible = visibilityConfig.visibleIds.includes(c.id);
+
+      // Guest mode: hide toggle column and VIS column
+      if (guestMode) {
+        // Guest sees 8 columns (no toggle, no VIS)
+        return `
+          <tr data-id="${c.id}" class="${rowClasses}">
+            <td class="container-id">${c.id}</td>
+            <td class="container-name">${c.name}</td>
+            <td><span class="status-pill ${statusClass}">[${c.status}]</span></td>
+            <td>${healthBadge(c.health, c.restartCount)}</td>
+            <td class="meter">
+              <div>${asciiBar(c.cpu)}${alertBadge}</div>
+              <div class="spark">${sparkline(h.cpu, 100)}</div>
+            </td>
+            <td class="meter">
+              <div>${asciiBar(c.mem)}</div>
+              <div class="spark">${sparkline(h.mem, 100)}</div>
+            </td>
+            <td>
+              <div>${formatBytes(c.netRx)} IN / ${formatBytes(c.netTx)} OUT</div>
+              <div class="spark">${sparkline(h.netRate)}</div>
+            </td>
+            <td>${c.uptime}</td>
+          </tr>`;
+      }
+
+      // Admin view: 10 columns (VIS + toggle + 8 data)
+      const toggleCol = `<td class="col-toggle"><button type="button" class="row-toggle ${isOpen ? 'open' : ''}" data-toggle="${c.id}">${isOpen ? '▾' : '▸'}</button></td>`;
+      const visCol = `<td class="vis-toggle-col-cell"><span class="vis-indicator ${visible ? 'vis-on' : 'vis-off'}" title="${visible ? 'Visible to guests' : 'Hidden from guests'}"></span></td>`;
+
       const mainRow = `
         <tr data-id="${c.id}" class="${rowClasses}">
-          ${guestMode ? '' : `<td class="col-toggle"><button type="button" class="row-toggle ${isOpen ? 'open' : ''}" data-toggle="${c.id}">${isOpen ? '▾' : '▸'}</button></td>`}
+          ${visCol}
+          ${toggleCol}
           <td class="container-id">${c.id}</td>
           <td class="container-name" data-toggle="${c.id}">${c.name}</td>
           <td><span class="status-pill ${statusClass}">[${c.status}]</span></td>
@@ -492,12 +653,17 @@ function renderContainers() {
           </td>
           <td>${c.uptime}</td>
         </tr>`;
-      const detailRow = isOpen && !guestMode
-        ? `<tr class="detail-row"><td colspan="9">${renderDetailPanel(c.id)}</td></tr>`
+
+      const detailRow = isOpen
+        ? `<tr class="detail-row"><td colspan="10">${renderDetailPanel(c.id)}</td></tr>`
         : '';
+
       return mainRow + detailRow;
     })
     .join('');
+
+  // Render visibility toggle buttons in the VIS column after the table is built
+  renderVisibilityToggles(latestContainers);
 }
 
 searchInput.addEventListener('input', (e) => {
@@ -567,10 +733,12 @@ socket.on('container_detail_error', ({ id, message }) => {
 });
 
 socket.on('containers', (containers) => {
-  checkForDeaths(containers); // must run before previousStatusById is updated below
+  checkForDeaths(containers);
   updateSustainedState(containers);
   updateHistory(containers);
   latestContainers = containers;
+
+  // Clean up detail state for containers no longer present
   const currentIds = new Set(containers.map((c) => c.id));
   [...expandedIds].forEach((id) => {
     if (!currentIds.has(id)) {
@@ -578,9 +746,8 @@ socket.on('containers', (containers) => {
       detailCache.delete(id);
     }
   });
+
   renderContainers();
-  // record statuses AFTER render so this pass's changes were reflected in the flash class,
-  // then future comparisons use these as the new baseline
   containers.forEach((c) => previousStatusById.set(c.id, c.status));
 });
 
@@ -633,4 +800,3 @@ socket.on('event', renderEvent);
 socket.on('error', (err) => {
   renderEvent({ time: new Date().toISOString(), line: `ERROR: ${err.message}` });
 });
-
