@@ -629,10 +629,11 @@ main.guest-mode .detail-row { display: none !important; }
   border: 1px solid #7a2b28;
   padding: 8px 12px;
   border-radius: 3px;
-  display: flex;
+  display: none;
   gap: 6px;
   align-items: center;
 }
+.form-error:not([hidden]) { display: flex; }
 .form-error .error-marker { font-weight: 700; }
 .login-btn {
   background: var(--green);
