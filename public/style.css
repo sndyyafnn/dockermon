@@ -441,6 +441,62 @@ tbody tr.row-crit:hover { background: rgba(255,92,87,0.11); }
 .prompt { color: var(--green); }
 .cursor { animation: blink 1s step-start infinite; }
 
+/* ---------- Guest mode ---------- */
+#guest-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--red);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  padding: 8px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 10px rgba(255,92,87,0.3);
+  border-bottom: 2px solid #7a2b28;
+}
+#guest-banner .guest-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+#guest-banner .guest-token {
+  font-size: 11px;
+  opacity: 0.8;
+}
+#guest-banner .guest-token span {
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+/* Guest mode: hide admin controls */
+main.guest-mode .controls-bar { display: none; }
+main.guest-mode .search-field { display: none; }
+main.guest-mode .status-filters { display: none; }
+main.guest-mode .threshold-bar { display: none; }
+main.guest-mode .panel-title-row .panel-count { display: none; }
+
+/* Guest mode: topbar / footer / titlebar */
+.topbar-guest .badge { display: none; }
+.topbar-guest #generate-guest-btn { display: none !important; }
+.topbar-guest #conn-status { display: none; }
+.topbar-guest #clock { display: none; }
+
+.titlebar-guest { display: none; }
+
+.footer-guest { display: none; }
+
+/* Detail rows hidden in guest mode */
+main.guest-mode .detail-row { display: none !important; }
+
+/* Hidden utility */
+.hidden { display: none !important; }
+
 @keyframes blink { 50% { opacity: 0; } }
 
 .events-wrap::-webkit-scrollbar,

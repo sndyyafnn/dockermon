@@ -11,6 +11,115 @@ const eventsWrap = document.getElementById('events');
 const alertsToggleBtn = document.getElementById('alerts-toggle');
 const thresholdPctInput = document.getElementById('threshold-pct');
 const thresholdSecInput = document.getElementById('threshold-sec');
+const mainEl = document.querySelector('main');
+const topbarRightEl = document.querySelector('.topbar-right');
+const titlebarEl = document.querySelector('.titlebar');
+const footerEl = document.querySelector('footer');
+const guestBannerEl = document.getElementById('guest-banner');
+const generateGuestBtn = document.getElementById('generate-guest-btn');
+const copyGuestUrlBtn = document.getElementById('copy-guest-url-btn');
+
+// ---------- Guest mode ----------
+function parseGuestToken() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('guest') || '';
+}
+
+let guestMode = false;
+const GUEST_TOKEN = parseGuestToken();
+
+function enterGuestMode() {
+  if (guestMode) return;
+  guestMode = true;
+  mainEl.classList.add('guest-mode');
+  topbarRightEl.classList.add('topbar-guest');
+  titlebarEl.classList.add('titlebar-guest');
+  footerEl.classList.add('footer-guest');
+  guestBannerEl.classList.remove('hidden');
+}
+
+function exitGuestMode() {
+  if (!guestMode) return;
+  guestMode = false;
+  mainEl.classList.remove('guest-mode');
+  topbarRightEl.classList.remove('topbar-guest');
+  titlebarEl.classList.remove('titlebar-guest');
+  footerEl.classList.remove('footer-guest');
+  guestBannerEl.classList.add('hidden');
+}
+
+// ---------- Token generation (admin feature) ----------
+function generateGuestToken() {
+  let token = '';
+  for (let i = 0; i < 8; i++) {
+    token += '0123456789abcdef' [Math.floor(Math.random() * 16)];
+  }
+  return token;
+}
+
+function buildGuestUrl(token) {
+  const url = new URL(window.location);
+  url.searchParams.set('guest', token);
+  return url.toString();
+}
+
+generateGuestBtn.addEventListener('click', () => {
+  const token = generateGuestToken();
+  const guestUrl = buildGuestUrl(token);
+  sessionStorage.setItem('pendingGuestUrl', guestUrl);
+  copyGuestUrlBtn.dataset.guestUrl = guestUrl;
+  copyGuestUrlBtn.style.display = '';
+  copyGuestUrlBtn.classList.remove('hidden');
+  copyGuestUrlBtn.textContent = 'Copy URL';
+  updateGuestButtonVisibility();
+});
+
+copyGuestUrlBtn.addEventListener('click', () => {
+  const url = copyGuestUrlBtn.dataset.guestUrl;
+  if (!url) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      copyGuestUrlBtn.textContent = 'Copied!';
+      setTimeout(() => { copyGuestUrlBtn.textContent = 'Copy URL'; }, 1500);
+    }).catch(() => {
+      fallbackCopy(url);
+    });
+  } else {
+    fallbackCopy(url);
+  }
+});
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    copyGuestUrlBtn.textContent = 'Copied!';
+    setTimeout(() => { copyGuestUrlBtn.textContent = 'Copy URL'; }, 1500);
+  } catch {
+    copyGuestUrlBtn.textContent = 'Failed';
+    setTimeout(() => { copyGuestUrlBtn.textContent = 'Copy URL'; }, 1500);
+  }
+  document.body.removeChild(ta);
+}
+
+// ---------- Guest mode init (run after DOM is ready, before first render) ----------
+if (GUEST_TOKEN) {
+  enterGuestMode();
+  document.getElementById('guest-token-display').textContent = GUEST_TOKEN;
+}
+
+function updateGuestButtonVisibility() {
+  const show = !guestMode;
+  generateGuestBtn.style.display = show ? '' : 'none';
+  copyGuestUrlBtn.style.display = (show && copyGuestUrlBtn.dataset.guestUrl) ? '' : 'none';
+}
+
+updateGuestButtonVisibility();
 
 // ---------- Container table state ----------
 let latestContainers = [];
@@ -364,7 +473,7 @@ function renderContainers() {
       const h = history.get(c.id) || { cpu: [], mem: [], netRate: [] };
       const mainRow = `
         <tr data-id="${c.id}" class="${rowClasses}">
-          <td class="col-toggle"><button type="button" class="row-toggle ${isOpen ? 'open' : ''}" data-toggle="${c.id}">${isOpen ? '▾' : '▸'}</button></td>
+          ${guestMode ? '' : `<td class="col-toggle"><button type="button" class="row-toggle ${isOpen ? 'open' : ''}" data-toggle="${c.id}">${isOpen ? '▾' : '▸'}</button></td>`}
           <td class="container-id">${c.id}</td>
           <td class="container-name" data-toggle="${c.id}">${c.name}</td>
           <td><span class="status-pill ${statusClass}">[${c.status}]</span></td>
@@ -383,7 +492,7 @@ function renderContainers() {
           </td>
           <td>${c.uptime}</td>
         </tr>`;
-      const detailRow = isOpen
+      const detailRow = isOpen && !guestMode
         ? `<tr class="detail-row"><td colspan="9">${renderDetailPanel(c.id)}</td></tr>`
         : '';
       return mainRow + detailRow;
@@ -392,11 +501,13 @@ function renderContainers() {
 }
 
 searchInput.addEventListener('input', (e) => {
+  if (guestMode) return;
   searchQuery = e.target.value;
   renderContainers();
 });
 
 statusFilters.addEventListener('click', (e) => {
+  if (guestMode) return;
   const btn = e.target.closest('.filter-btn');
   if (!btn) return;
   statusFilters.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
@@ -407,6 +518,7 @@ statusFilters.addEventListener('click', (e) => {
 
 sortableHeaders.forEach((th) => {
   th.addEventListener('click', () => {
+    if (guestMode) return;
     const key = th.dataset.sort;
     if (sortKey === key) {
       sortDir = sortDir === 'asc' ? 'desc' : 'asc';
@@ -421,6 +533,7 @@ sortableHeaders.forEach((th) => {
 updateSortHeaderStyles();
 
 containersBody.addEventListener('click', (e) => {
+  if (guestMode) return;
   const refreshBtn = e.target.closest('[data-refresh]');
   if (refreshBtn) {
     const id = refreshBtn.dataset.refresh;
@@ -442,11 +555,13 @@ containersBody.addEventListener('click', (e) => {
 });
 
 socket.on('container_detail', (detail) => {
+  if (guestMode) return;
   detailCache.set(detail.id, detail);
   if (expandedIds.has(detail.id)) renderContainers();
 });
 
 socket.on('container_detail_error', ({ id, message }) => {
+  if (guestMode) return;
   detailCache.set(id, { error: message });
   if (expandedIds.has(id)) renderContainers();
 });
