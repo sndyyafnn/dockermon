@@ -1,7 +1,6 @@
 const socket = io({
   auth: {
-    guestMode: new URLSearchParams(window.location.search).get('guest') ? true : false,
-    guestToken: new URLSearchParams(window.location.search).get('guest') || ''
+    guestMode: location.pathname === '/guest' || location.search.includes('guest=') ? true : false
   }
 });
 
@@ -21,29 +20,14 @@ const topbarRightEl = document.querySelector('.topbar-right');
 const titlebarEl = document.querySelector('.titlebar');
 const footerEl = document.querySelector('footer');
 const guestBannerEl = document.getElementById('guest-banner');
-const generateGuestBtn = document.getElementById('generate-guest-btn');
-const copyGuestUrlBtn = document.getElementById('copy-guest-url-btn');
 const logoutBtn = document.getElementById('logout-btn');
 
-// ---------- Guest mode ----------
-function parseGuestToken() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('guest') || '';
-}
+// ---------- Guest page detection ----------
+const isGuestPage = location.pathname === '/guest' || location.search.includes('guest=');
+let guestMode = isGuestPage;
+let isAuthenticated = !guestMode;
 
-let guestMode = false;
-let isAuthenticated = false;
-const GUEST_TOKEN = parseGuestToken();
-
-// Detect guest mode from URL or existing banner state
-function detectGuestMode() {
-  // URL parameter takes precedence
-  if (GUEST_TOKEN) return true;
-  // If the banner was already made visible by something else, we're in guest mode
-  if (!guestBannerEl.classList.contains('hidden')) return true;
-  return false;
-}
-
+// ---------- Guest mode UI ----------
 function enterGuestMode() {
   if (guestMode) return;
   guestMode = true;
@@ -52,11 +36,9 @@ function enterGuestMode() {
   titlebarEl.classList.add('titlebar-guest');
   footerEl.classList.add('footer-guest');
   guestBannerEl.classList.remove('hidden');
-  document.getElementById('guest-token-display').textContent = GUEST_TOKEN;
   // Reconnect socket with guest auth
   if (socket.io?.connected) {
     socket.io.auth.guestMode = true;
-    socket.io.auth.guestToken = GUEST_TOKEN;
     socket.connect();
   }
 }
@@ -71,83 +53,7 @@ function exitGuestMode() {
   guestBannerEl.classList.add('hidden');
 }
 
-// ---------- Token generation (admin feature) ----------
-function generateGuestToken() {
-  let token = '';
-  for (let i = 0; i < 8; i++) {
-    token += '0123456789abcdef' [Math.floor(Math.random() * 16)];
-  }
-  return token;
-}
-
-function buildGuestUrl(token) {
-  const url = new URL(window.location);
-  url.searchParams.set('guest', token);
-  return url.toString();
-}
-
-generateGuestBtn.addEventListener('click', () => {
-  const token = generateGuestToken();
-  const guestUrl = buildGuestUrl(token);
-  sessionStorage.setItem('pendingGuestUrl', guestUrl);
-  copyGuestUrlBtn.dataset.guestUrl = guestUrl;
-  copyGuestUrlBtn.style.display = '';
-  copyGuestUrlBtn.classList.remove('hidden');
-  copyGuestUrlBtn.textContent = 'Copy URL';
-  updateGuestButtonVisibility();
-});
-
-copyGuestUrlBtn.addEventListener('click', () => {
-  const url = copyGuestUrlBtn.dataset.guestUrl;
-  if (!url) return;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(url).then(() => {
-      copyGuestUrlBtn.textContent = 'Copied!';
-      setTimeout(() => { copyGuestUrlBtn.textContent = 'Copy URL'; }, 1500);
-    }).catch(() => {
-      fallbackCopy(url);
-    });
-  } else {
-    fallbackCopy(url);
-  }
-});
-
-function fallbackCopy(text) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  ta.select();
-  try {
-    document.execCommand('copy');
-    copyGuestUrlBtn.textContent = 'Copied!';
-    setTimeout(() => { copyGuestUrlBtn.textContent = 'Copy URL'; }, 1500);
-  } catch {
-    copyGuestUrlBtn.textContent = 'Failed';
-    setTimeout(() => { copyGuestUrlBtn.textContent = 'Copy URL'; }, 1500);
-  }
-  document.body.removeChild(ta);
-}
-
-// ---------- Guest mode init ----------
-if (detectGuestMode()) {
-  enterGuestMode();
-}
-
-function updateGuestButtonVisibility() {
-  const show = !guestMode && isAuthenticated;
-  generateGuestBtn.style.display = show ? '' : 'none';
-  copyGuestUrlBtn.style.display = (show && copyGuestUrlBtn.dataset.guestUrl) ? '' : 'none';
-  logoutBtn.style.display = show ? '' : 'none';
-}
-
-updateGuestButtonVisibility();
-
 // ---------- Auth status (admin session) ----------
-// Detect auth state: if we loaded index.html, the middleware passed us,
-// which means we have a valid session (or we're in guest mode).
-isAuthenticated = !guestMode;
 
 // Logout handler
 logoutBtn.addEventListener('click', async () => {

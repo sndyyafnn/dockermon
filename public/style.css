@@ -514,14 +514,6 @@ tbody tr.row-crit:hover { background: rgba(255,92,87,0.11); }
   align-items: center;
   gap: 16px;
 }
-#guest-banner .guest-token {
-  font-size: 11px;
-  opacity: 0.8;
-}
-#guest-banner .guest-token span {
-  font-weight: 700;
-  letter-spacing: 1px;
-}
 
 /* Hide admin-only controls in guest mode on all devices */
 main.guest-mode .controls-bar { display: none; }
@@ -534,7 +526,7 @@ main.guest-mode .vis-toggle-col-cell { display: none !important; }
 
 /* Guest mode: hide topbar items that don't apply */
 .topbar-guest .badge { display: none; }
-.topbar-guest #generate-guest-btn { display: none !important; }
+.topbar-guest #logout-btn { display: inline-block !important; }
 .topbar-guest #conn-status { display: none; }
 .topbar-guest #clock { display: none; }
 

@@ -61,11 +61,13 @@ app.use(session({
 app.use(express.json());
 
 // ---------- Auth middleware: protect dashboard routes ----------
-// Guest mode (read-only, via ?guest=<token>) bypasses login.
+// Public guest view at /guest is always allowed (no auth, no token).
 // Admin access requires a valid session.
 app.use((req, res, next) => {
-  const isGuest = req.query && req.query.guest ? true : false;
-  if (isGuest) return next(); // guest read-only access
+  // Public guest endpoint — no auth needed
+  if (req.path === '/guest' || req.path === '/guest/') {
+    return next();
+  }
   if (req.session && req.session.auth) return next(); // authenticated admin
   // For navigation requests to the root or dashboard HTML, redirect to login
   if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html')) {
@@ -82,7 +84,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Login endpoint
+// ---------- Public guest page ----------
+app.get('/guest', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ---------- Login endpoint ----------
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
   if (username === CRED_USERNAME && password === CRED_PASSWORD) {
@@ -92,7 +99,7 @@ app.post('/api/login', (req, res) => {
   return res.status(401).json({ ok: false, error: 'invalid credentials' });
 });
 
-// Logout endpoint
+// ---------- Logout endpoint ----------
 app.post('/api/logout', (req, res) => {
   req.session.destroy(() => { res.json({ ok: true }); });
 });
@@ -402,7 +409,6 @@ async function getContainerDetail(id) {
 // ---------- Socket.IO wiring ----------
 io.on('connection', (socket) => {
   const guestMode = socket.handshake.auth?.guestMode === true;
-  const guestToken = socket.handshake.auth?.guestToken || '';
 
   // Join the appropriate room so polls can target admin vs guest sockets
   if (guestMode) {
@@ -452,4 +458,6 @@ setInterval(pollSystemResources, POLL_INTERVAL_MS);
 
 server.listen(PORT, () => {
   console.log(`docker-monitor listening on http://localhost:${PORT}`);
+  console.log(`  Admin:      http://localhost:${PORT}/        (login required)`);
+  console.log(`  Guest view: http://localhost:${PORT}/guest    (public, read-only)`);
 });
