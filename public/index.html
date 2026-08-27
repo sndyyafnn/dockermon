@@ -31,12 +31,15 @@
   </script>
 </head>
 <body>
+  <!-- ========== GUEST BANNER (shown only in guest mode) ========== -->
   <div id="guest-banner" class="hidden">
     <div class="guest-banner-inner">
       <span>GUEST VIEW — READ ONLY</span>
     </div>
   </div>
+
   <div class="crt">
+    <!-- ========== TOPBAR (shared, guest mode hides admin controls) ========== -->
     <header class="topbar">
       <div class="tabs">
         <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
@@ -47,12 +50,45 @@
         <button type="button" id="logout-btn" class="badge logout-btn" style="display:none;">LOGOUT</button>
         <span id="conn-status" class="badge disconnected">CONNECTING</span>
         <span id="clock" class="clock"></span>
+        <span id="guest-live-indicator" class="badge-live hidden">
+          <span class="live-dot"></span> LIVE
+        </span>
+        <span id="guest-last-update" class="guest-timestamp hidden"></span>
       </div>
     </header>
 
+    <!-- ========== TITLEBAR (hidden in guest mode) ========== -->
     <div class="titlebar">DOCKER DASHBOARD</div>
 
-    <main class="grid">
+    <!-- ========== MAIN CONTENT ========== -->
+    <main>
+      <!-- ====== GUEST SYSTEM OVERVIEW (shown only in guest mode) ====== -->
+      <section class="guest-overview-panel hidden">
+        <div class="guest-overview-grid">
+          <div class="guest-stat">
+            <div class="guest-stat-label">SERVICES</div>
+            <div class="guest-stat-value" id="guest-services-count">0</div>
+          </div>
+          <div class="guest-stat">
+            <div class="guest-stat-label">ONLINE</div>
+            <div class="guest-stat-value" id="guest-online-count">0</div>
+          </div>
+          <div class="guest-stat">
+            <div class="guest-stat-label">OFFLINE</div>
+            <div class="guest-stat-value" id="guest-offline-count">0</div>
+          </div>
+          <div class="guest-stat">
+            <div class="guest-stat-label">UNHEALTHY</div>
+            <div class="guest-stat-value" id="guest-unhealthy-count">0</div>
+          </div>
+          <div class="guest-system-status" id="guest-system-status">
+            <span class="sys-status-dot"></span>
+            <span class="sys-status-label">INITIALIZING</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== ADMIN: CONTAINERS PANEL (table, hidden in guest mode) ====== -->
       <section class="panel containers-panel">
         <div class="panel-title-row">
           <div class="panel-title">CONTAINER STATUS</div>
@@ -99,40 +135,64 @@
         </div>
       </section>
 
-      <section class="panel resources-panel">
-        <div class="panel-title">SYSTEM RESOURCES</div>
-        <div class="resource-rows" id="resources">
-          <div class="resource-row">
-            <span class="resource-label">CPU:</span>
-            <span class="bar" id="bar-cpu"></span>
-            <span class="resource-val" id="val-cpu">0%</span>
-          </div>
-          <div class="resource-row">
-            <span class="resource-label">RAM:</span>
-            <span class="bar" id="bar-mem"></span>
-            <span class="resource-val" id="val-mem">0%</span>
-          </div>
-          <div class="resource-sub" id="sub-mem"></div>
-          <div class="resource-row">
-            <span class="resource-label">DISK:</span>
-            <span class="bar" id="bar-disk"></span>
-            <span class="resource-val" id="val-disk">0%</span>
-          </div>
-          <div class="resource-row">
-            <span class="resource-label">NET:</span>
-            <span class="bar" id="bar-net"></span>
-            <span class="resource-val" id="val-net">0%</span>
-          </div>
-          <div class="resource-sub" id="sub-net"></div>
+      <!-- ====== GUEST: CONTAINER CARDS GRID (shown only in guest mode) ====== -->
+      <section class="guest-cards-panel hidden">
+        <div class="guest-cards-header">
+          <div class="guest-panel-title">SERVICE STATUS</div>
+          <div class="guest-cards-count" id="guest-cards-count">0 services</div>
+        </div>
+        <div class="guest-cards-grid" id="guest-cards-grid">
+          <!-- Cards rendered by app.js -->
+          <div class="guest-empty-state">waiting for services…</div>
         </div>
       </section>
 
+      <!-- ====== ADMIN: RESOURCES PANEL (aside, hidden in guest mode) ====== -->
+      <!-- ====== GUEST: RESOURCES PANEL (full-width below cards, shown only in guest mode) ====== -->
+      <section class="panel guest-resources-panel hidden">
+        <div class="panel-title">SYSTEM RESOURCES</div>
+        <div class="guest-resource-rows" id="guest-resources">
+          <div class="guest-resource-row">
+            <span class="guest-resource-label">CPU</span>
+            <span class="guest-bar" id="guest-bar-cpu">
+              <span class="guest-bar-fill"></span>
+            </span>
+            <span class="guest-resource-val" id="guest-val-cpu">0%</span>
+          </div>
+          <div class="guest-resource-row">
+            <span class="guest-resource-label">RAM</span>
+            <span class="guest-bar" id="guest-bar-mem">
+              <span class="guest-bar-fill"></span>
+            </span>
+            <span class="guest-resource-val" id="guest-val-mem">0%</span>
+          </div>
+          <div class="guest-resource-sub" id="guest-sub-mem"></div>
+          <div class="guest-resource-row">
+            <span class="guest-resource-label">DISK</span>
+            <span class="guest-bar" id="guest-bar-disk">
+              <span class="guest-bar-fill"></span>
+            </span>
+            <span class="guest-resource-val" id="guest-val-disk">0%</span>
+          </div>
+          <div class="guest-resource-row">
+            <span class="guest-resource-label">NET</span>
+            <span class="guest-bar" id="guest-bar-net">
+              <span class="guest-bar-fill"></span>
+            </span>
+            <span class="guest-resource-val" id="guest-val-net">0%</span>
+          </div>
+          <div class="guest-resource-sub" id="guest-sub-net"></div>
+        </div>
+      </section>
+
+      <!-- ====== ADMIN: EVENTS PANEL (hidden in guest mode) ====== -->
       <section class="panel events-panel">
         <div class="panel-title">EVENTS LOG</div>
         <div class="events-wrap" id="events"></div>
       </section>
     </main>
 
+    <!-- ========== STATUSBAR (hidden in guest mode) ========== -->
     <footer class="statusbar">
       <span>[Press R to reconnect | <span id="poll-rate">2s</span> update]</span>
       <span class="prompt">root@app-gateway-01:~# <span class="cursor">_</span></span>

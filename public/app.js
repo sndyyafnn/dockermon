@@ -1,6 +1,6 @@
 const socket = io({
   auth: {
-    guestMode: location.pathname === '/guest' || location.search.includes('guest=') ? true : false
+    guestMode: location.pathname === '/guest' ? true : false
   }
 });
 
@@ -23,7 +23,7 @@ const guestBannerEl = document.getElementById('guest-banner');
 const logoutBtn = document.getElementById('logout-btn');
 
 // ---------- Guest page detection ----------
-const isGuestPage = location.pathname === '/guest' || location.search.includes('guest=');
+const isGuestPage = location.pathname === '/guest';
 let guestMode = isGuestPage;
 let isAuthenticated = !guestMode;
 
@@ -36,6 +36,8 @@ function enterGuestMode() {
   titlebarEl.classList.add('titlebar-guest');
   footerEl.classList.add('footer-guest');
   guestBannerEl.classList.remove('hidden');
+  // Show guest-only elements
+  document.querySelectorAll('.guest-overview-panel, .guest-cards-panel, .guest-resources-panel, #guest-live-indicator, #guest-last-update').forEach(el => el.classList.remove('hidden'));
   // Reconnect socket with guest auth
   if (socket.io?.connected) {
     socket.io.auth.guestMode = true;
@@ -51,6 +53,8 @@ function exitGuestMode() {
   titlebarEl.classList.remove('titlebar-guest');
   footerEl.classList.remove('footer-guest');
   guestBannerEl.classList.add('hidden');
+  // Hide guest-only elements
+  document.querySelectorAll('.guest-overview-panel, .guest-cards-panel, .guest-resources-panel, #guest-live-indicator, #guest-last-update').forEach(el => el.classList.add('hidden'));
 }
 
 // ---------- Auth status (admin session) ----------
@@ -91,7 +95,7 @@ let thresholdSec = 15;
 const sustainedSince = new Map(); // id -> { cpu: ts|null, mem: ts|null }
 
 // ---------- Trend history for sparklines (Phase 4) ----------
-const HISTORY_LEN = 24; // ~48s of history at a 2s poll interval
+const HISTORY_LEN = 60; // 2 minutes at 2s poll interval
 const SPARK_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 const history = new Map(); // id -> { cpu: number[], mem: number[], netRate: number[], lastNet: {rx,tx,ts}|null }
 
@@ -116,19 +120,21 @@ function asciiBar(percent, width = 8) {
   return `[${bar}] ${pct.toFixed(0)}%`;
 }
 
-// ---------- Sparklines ----------
-function sparkline(values, fixedMax) {
+// ---------- SVG Sparklines ----------
+function sparklineSvg(values, maxVal, color, height = 24, width = 120) {
   if (!values || !values.length) return '';
-  const max = fixedMax !== undefined ? fixedMax : Math.max(...values, 1);
-  return values
-    .map((v) => {
-      const ratio = max > 0 ? Math.min(1, Math.max(0, v / max)) : 0;
-      const idx = Math.round(ratio * (SPARK_CHARS.length - 1));
-      return SPARK_CHARS[idx];
-    })
-    .join('');
+  const effectiveMax = maxVal > 0 ? maxVal : Math.max(...values, 1);
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width;
+    const y = height - (Math.max(0, Math.min(1, v / effectiveMax)) * height);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg class="spark-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+  </svg>`;
 }
 
+// ---------- History update ----------
 function updateHistory(containers) {
   const now = Date.now();
   containers.forEach((c) => {
@@ -164,7 +170,13 @@ function updateHistory(containers) {
 
 function tickClock() {
   const now = new Date();
-  clockEl.textContent = now.toLocaleTimeString('en-GB', { hour12: false });
+  const timeStr = now.toLocaleTimeString('en-GB', { hour12: false });
+  if (guestMode) {
+    clockEl.textContent = timeStr;
+    document.getElementById('guest-last-update').textContent = `UPDATED ${timeStr}`;
+  } else {
+    clockEl.textContent = timeStr;
+  }
 }
 setInterval(tickClock, 1000);
 tickClock();
@@ -176,11 +188,15 @@ socket.on('connect', () => {
   if (!guestMode) {
     socket.emit('get_visibility_config');
   }
+  if (guestMode) {
+    document.getElementById('guest-live-indicator').classList.remove('hidden');
+  }
 });
 
 socket.on('disconnect', () => {
   connBadge.textContent = '● DISCONNECTED';
   connBadge.className = 'badge disconnected';
+  document.getElementById('guest-live-indicator').classList.add('hidden');
 });
 
 // ---------- Visibility config from server ----------
@@ -463,6 +479,158 @@ function renderVisibilityToggles(containers) {
   });
 }
 
+// ---------- Guest card rendering ----------
+function renderGuestCards(containers) {
+  const grid = document.getElementById('guest-cards-grid');
+  const countEl = document.getElementById('guest-cards-count');
+  countEl.textContent = `${containers.length} service${containers.length !== 1 ? 's' : ''}`;
+
+  if (!containers.length) {
+    grid.innerHTML = '<div class="guest-empty-state">no services visible</div>';
+    return;
+  }
+
+  grid.innerHTML = containers.map((c) => {
+    const h = history.get(c.id) || { cpu: [], mem: [], netRate: [] };
+    const statusClass = c.status.toLowerCase();
+    const isRunning = c.status === 'RUNNING';
+    const health = c.health === 'none' ? '—' : c.health;
+    const healthClass = c.health === 'healthy' ? 'healthy' : c.health === 'unhealthy' ? 'unhealthy' : c.health === 'starting' ? 'starting' : 'none';
+    const runtimeStr = c.uptime && c.uptime !== '-' ? c.uptime : 'n/a';
+
+    // CPU gauge SVG
+    const cpuPct = Math.max(0, Math.min(100, c.cpu || 0));
+    const cpuColor = cpuPct >= 85 ? '#ff5c57' : cpuPct >= 65 ? '#ffd866' : '#3ddc84';
+    const cpuAngle = (cpuPct / 100) * 180;
+    const cpuGauge = `
+      <svg class="guest-gauge" viewBox="0 0 60 34">
+        <path class="gauge-track" d="M 5 28 A 25 25 0 0 1 55 28" />
+        <path class="gauge-fill" d="M 5 28 A 25 25 0 0 1 55 28" stroke="${cpuColor}"
+              stroke-dasharray="${Math.sin(Math.PI * cpuPct / 100) * 25} 999"
+              stroke-dashoffset="${50 - Math.sin(Math.PI * cpuPct / 100) * 25}"
+              stroke-linecap="round" />
+        <text x="30" y="33" text-anchor="middle" class="gauge-label">${cpuPct.toFixed(0)}%</text>
+      </svg>`;
+
+    // MEM gauge SVG
+    const memPct = Math.max(0, Math.min(100, c.mem || 0));
+    const memColor = memPct >= 85 ? '#ff5c57' : memPct >= 65 ? '#ffd866' : '#3ddc84';
+    const memAngle = (memPct / 100) * 180;
+    const memGauge = `
+      <svg class="guest-gauge" viewBox="0 0 60 34">
+        <path class="gauge-track" d="M 5 28 A 25 25 0 0 1 55 28" />
+        <path class="gauge-fill" d="M 5 28 A 25 25 0 0 1 55 28" stroke="${memColor}"
+              stroke-dasharray="${Math.sin(Math.PI * memPct / 100) * 25} 999"
+              stroke-dashoffset="${50 - Math.sin(Math.PI * memPct / 100) * 25}"
+              stroke-linecap="round" />
+        <text x="30" y="33" text-anchor="middle" class="gauge-label">${memPct.toFixed(0)}%</text>
+      </svg>`;
+
+    // CPU sparkline
+    const cpuSpark = sparklineSvg(h.cpu, 100, '#3ddc84', 28, 160);
+    // MEM sparkline
+    const memSpark = sparklineSvg(h.mem, 100, '#3ddc84', 28, 160);
+
+    // Network info
+    const netRxRate = c.netRx ? formatRate(c.netRx / 2) : '0.0MB/s'; // rough rate estimate
+    const netTxRate = c.netTx ? formatRate(c.netTx / 2) : '0.0MB/s';
+    const netTotal = `${formatBytes(c.netRx)} ↓ / ${formatBytes(c.netTx)} ↑`;
+
+    const alertState = getAlertState(c.id);
+    const alertClass = alertState ? alertState.level : '';
+
+    // Health dot color
+    const healthDotColor = c.health === 'healthy' ? '#3ddc84' : c.health === 'unhealthy' ? '#ff5c57' : c.health === 'starting' ? '#ffd866' : '#5f7568';
+
+    // Status indicator
+    const statusDot = isRunning
+      ? '<span class="status-dot running"></span>'
+      : '<span class="status-dot stopped"></span>';
+
+    return `
+      <div class="guest-card ${alertClass}" data-id="${c.id}">
+        <div class="guest-card-header">
+          <div class="guest-card-name-row">
+            ${statusDot}
+            <span class="guest-card-name">${escapeHtml(c.name)}</span>
+          </div>
+          <div class="guest-card-status-row">
+            <span class="guest-status-pill ${statusClass}">${isRunning ? '● ONLINE' : '○ OFFLINE'}</span>
+            <span class="guest-health-badge ${healthClass}">${health}</span>
+            ${c.restartCount > 0 ? `<span class="guest-restart-badge">↻${c.restartCount}</span>` : ''}
+          </div>
+        </div>
+        <div class="guest-card-body">
+          <div class="guest-metrics-row">
+            <div class="guest-metric-block">
+              <div class="guest-metric-label">CPU</div>
+              <div class="guest-gauge-row">
+                ${cpuGauge}
+                <div class="guest-metric-spark">${cpuSpark}</div>
+              </div>
+            </div>
+            <div class="guest-metric-block">
+              <div class="guest-metric-label">MEM</div>
+              <div class="guest-gauge-row">
+                ${memGauge}
+                <div class="guest-metric-spark">${memSpark}</div>
+              </div>
+            </div>
+          </div>
+          <div class="guest-info-row">
+            <div class="guest-info-item">
+              <span class="guest-info-label">UPTIME</span>
+              <span class="guest-info-value">${runtimeStr}</span>
+            </div>
+            <div class="guest-info-item">
+              <span class="guest-info-label">NETWORK</span>
+              <span class="guest-info-value">${netTotal}</span>
+            </div>
+            <div class="guest-info-item">
+              <span class="guest-info-label">RX RATE</span>
+              <span class="guest-info-value">${netRxRate}</span>
+            </div>
+            <div class="guest-info-item">
+              <span class="guest-info-label">TX RATE</span>
+              <span class="guest-info-value">${netTxRate}</span>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ---------- Guest overview panel ----------
+function renderGuestOverview(containers) {
+  const total = containers.length;
+  const online = containers.filter(c => c.status === 'RUNNING').length;
+  const offline = total - online;
+  const unhealthy = containers.filter(c => c.health === 'unhealthy').length;
+
+  document.getElementById('guest-services-count').textContent = total;
+  document.getElementById('guest-online-count').textContent = online;
+  document.getElementById('guest-offline-count').textContent = offline;
+  document.getElementById('guest-unhealthy-count').textContent = unhealthy;
+
+  const statusEl = document.getElementById('guest-system-status');
+  let statusText, statusColor;
+  if (unhealthy > 0) {
+    statusText = '● DEGRADED';
+    statusColor = 'var(--yellow)';
+  } else if (offline > 0) {
+    statusText = '● PARTIAL';
+    statusColor = 'var(--text-dim)';
+  } else if (total === 0) {
+    statusText = '○ NO SERVICES';
+    statusColor = 'var(--text-dim)';
+  } else {
+    statusText = '● OK';
+    statusColor = 'var(--green)';
+  }
+  statusEl.querySelector('.sys-status-label').textContent = statusText;
+  statusEl.querySelector('.sys-status-dot').style.color = statusColor;
+}
+
 // ---------- Main render ----------
 function renderContainers() {
   let containers = latestContainers;
@@ -470,26 +638,31 @@ function renderContainers() {
   // Apply visibility filtering for guests (defense-in-depth — server already filters)
   containers = filterByVisibility(containers);
 
+  // Admin: render table
+  if (!guestMode) {
+    renderAdminTable(containers, latestContainers);
+  } else {
+    // Guest: render cards + overview
+    renderGuestCards(containers);
+    renderGuestOverview(containers);
+  }
+}
+
+function renderAdminTable(containers, allContainers) {
   const rows = applyFilters(containers);
   const totalShown = rows.length;
-  const totalAvailable = latestContainers.length;
+  const totalAvailable = allContainers.length;
   const visibleCount = visibilityConfig.visibleIds.length;
 
-  if (guestMode) {
-    containerCountEl.textContent = `${totalShown} visible to guests`;
-  } else {
-    containerCountEl.textContent = `${totalShown} / ${totalAvailable} shown  ·  ${visibleCount} visible to guests`;
-  }
+  containerCountEl.textContent = `${totalShown} / ${totalAvailable} shown  ·  ${visibleCount} visible to guests`;
 
-  if (!latestContainers.length) {
+  if (!allContainers.length) {
     containersBody.innerHTML = '<tr><td colspan="10" class="empty">waiting for data…</td></tr>';
     renderVisibilityToggles([]);
     return;
   }
   if (!rows.length) {
-    containersBody.innerHTML = guestMode
-      ? '<tr><td colspan="10" class="empty">no containers visible to guests</td></tr>'
-      : '<tr><td colspan="10" class="empty">no containers match filters</td></tr>';
+    containersBody.innerHTML = '<tr><td colspan="10" class="empty">no containers match filters</td></tr>';
     renderVisibilityToggles([]);
     return;
   }
@@ -668,15 +841,38 @@ function setBar(barId, valId, percent, opts = {}) {
   val.textContent = `${pct.toFixed(0)}%`;
 }
 
+// ---------- Guest resource bars ----------
+function setGuestBar(barId, valId, percent, subId, formatFn) {
+  const bar = document.getElementById(barId);
+  const val = document.getElementById(valId);
+  const sub = subId ? document.getElementById(subId) : null;
+  const pct = Math.max(0, Math.min(100, percent || 0));
+  bar.style.setProperty('--pct', `${pct}%`);
+  bar.classList.remove('warn', 'crit');
+  if (pct >= 85) bar.classList.add('crit');
+  else if (pct >= 65) bar.classList.add('warn');
+  val.textContent = `${pct.toFixed(0)}%`;
+  if (sub && formatFn) sub.textContent = formatFn();
+}
+
 socket.on('system', (sys) => {
-  setBar('bar-cpu', 'val-cpu', sys.cpu.percent);
-  setBar('bar-mem', 'val-mem', sys.mem.percent);
-  document.getElementById('sub-mem').textContent =
-    `${formatBytes(sys.mem.used)} / ${formatBytes(sys.mem.total)}`;
-  setBar('bar-disk', 'val-disk', sys.disk.percent);
-  setBar('bar-net', 'val-net', sys.network.percent);
-  document.getElementById('sub-net').textContent =
-    `${formatRate(sys.network.rxSec)} IN / ${formatRate(sys.network.txSec)} OUT`;
+  if (!guestMode) {
+    setBar('bar-cpu', 'val-cpu', sys.cpu.percent);
+    setBar('bar-mem', 'val-mem', sys.mem.percent);
+    document.getElementById('sub-mem').textContent =
+      `${formatBytes(sys.mem.used)} / ${formatBytes(sys.mem.total)}`;
+    setBar('bar-disk', 'val-disk', sys.disk.percent);
+    setBar('bar-net', 'val-net', sys.network.percent);
+    document.getElementById('sub-net').textContent =
+      `${formatRate(sys.network.rxSec)} IN / ${formatRate(sys.network.txSec)} OUT`;
+  } else {
+    setGuestBar('guest-bar-cpu', 'guest-val-cpu', sys.cpu.percent);
+    setGuestBar('guest-bar-mem', 'guest-val-mem', sys.mem.percent, 'guest-sub-mem',
+      () => `${formatBytes(sys.mem.used)} / ${formatBytes(sys.mem.total)}`);
+    setGuestBar('guest-bar-disk', 'guest-val-disk', sys.disk.percent);
+    setGuestBar('guest-bar-net', 'guest-val-net', sys.network.percent, 'guest-sub-net',
+      () => `${formatRate(sys.network.rxSec)} IN / ${formatRate(sys.network.txSec)} OUT`);
+  }
 });
 
 function renderEvent(entry) {
