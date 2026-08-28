@@ -9,6 +9,20 @@ const session = require('express-session');
 
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
+// ---------- Mock mode (for dev/test when no Docker daemon is available) ----------
+const MOCK_MODE = process.env.MOCK_MODE === '1';
+let mockContainerIndex = 0;
+const MOCK_CONTAINER_POOL = [
+  { name: 'portal-ujian',       image: 'nginx:alpine',         state: 'running', health: 'healthy',  exposedPorts: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080', PrivatePort: 80, Type: 'tcp' }] }, cpuSigma: 12, memBase: 48e6,  memLimit: 256e6,  netRxBase: 1.24e6, netTxBase: 340e3, startedAt: Date.now() - 12 * 86400e3 - 4 * 3600e3 - 32 * 60e3 },
+  { name: 'api-gateway',         image: 'node:20-alpine',       state: 'running', health: 'healthy',  exposedPorts: { '3000/tcp': [{ HostIp: '0.0.0.0', HostPort: '3001', PrivatePort: 3000, Type: 'tcp' }] }, cpuSigma: 8,  memBase: 92e6,  memLimit: 512e6,  netRxBase: 890e3,  netTxBase: 1.4e6,  startedAt: Date.now() - 8 * 86400e3 - 14 * 3600e3 - 22 * 60e3 },
+  { name: 'auth-service',        image: 'golang:1.22-alpine',   state: 'running', health: 'starting', exposedPorts: { '8080/tcp': [{ HostIp: '0.0.0.0', HostPort: '8081', PrivatePort: 8080, Type: 'tcp' }] }, cpuSigma: 3,  memBase: 34e6,  memLimit: 128e6,  netRxBase: 210e3,  netTxBase: 95e3,   startedAt: Date.now() - 3 * 86400e3 - 6 * 3600e3 - 11 * 60e3 },
+  { name: 'file-storage',        image: 'minio/minio:latest',    state: 'running', health: 'healthy',  exposedPorts: { '9000/tcp': [{ HostIp: '0.0.0.0', HostPort: '9000', PrivatePort: 9000, Type: 'tcp' }], '9001/tcp': [{ HostIp: '0.0.0.0', HostPort: '9001', PrivatePort: 9001, Type: 'tcp' }] }, cpuSigma: 5,  memBase: 180e6, memLimit: 1e9,    netRxBase: 4.5e6,  netTxBase: 2.1e6,  startedAt: Date.now() - 20 * 86400e3 - 2 * 3600e3 - 5 * 60e3 },
+  { name: 'cache-redis',         image: 'redis:7-alpine',        state: 'running', health: 'healthy',  exposedPorts: { '6379/tcp': [] }, cpuSigma: 2,  memBase: 12e6,  memLimit: 64e6,   netRxBase: 85e3,   netTxBase: 120e3,  startedAt: Date.now() - 45 * 86400e3 - 0 * 3600e3 - 0 * 60e3 },
+  { name: 'log-collector',       image: 'fluent/fluent-bit:3.0', state: 'running', health: 'healthy',  exposedPorts: { '2020/tcp': [{ HostIp: '0.0.0.0', HostPort: '2020', PrivatePort: 2020, Type: 'tcp' }] }, cpuSigma: 4,  memBase: 28e6,  memLimit: 128e6,  netRxBase: 1.8e6,  netTxBase: 980e3,  startedAt: Date.now() - 6 * 86400e3 - 18 * 3600e3 - 44 * 60e3 },
+  { name: 'monitoring-stack',    image: 'prom/prometheus:v2.54', state: 'running', health: 'healthy',  exposedPorts: { '9090/tcp': [{ HostIp: '0.0.0.0', HostPort: '9090', PrivatePort: 9090, Type: 'tcp' }] }, cpuSigma: 15, memBase: 220e6, memLimit: 1e9,    netRxBase: 3.2e6,  netTxBase: 1.7e6,  startedAt: Date.now() - 15 * 86400e3 - 9 * 3600e3 - 17 * 60e3 },
+  { name: 'dead-service-v1',     image: 'python:3.12-slim',      state: 'exited',  health: 'none',     exposedPorts: {}, cpuSigma: 0, memBase: 0,     memLimit: 0,      netRxBase: 0,      netTxBase: 0,      startedAt: Date.now() - 90 * 86400e3 },
+];
+
 // ---------- Guest visibility config (persisted to guest-config.json) ----------
 const GUEST_CONFIG_PATH = path.join(__dirname, 'guest-config.json');
 let guestConfig;
@@ -32,6 +46,12 @@ function saveGuestConfig() {
 
 guestConfig = loadGuestConfig();
 
+// In mock mode, auto-visibility all mock containers so guests see them immediately
+if (MOCK_MODE) {
+  guestConfig.visibleContainerIds = MOCK_CONTAINER_POOL.map((_, i) => String(i));
+  saveGuestConfig();
+}
+
 function setContainerVisibility(ids) {
   guestConfig.visibleContainerIds = ids.map(String).filter(Boolean);
   saveGuestConfig();
@@ -47,9 +67,9 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 // ---------- Session & auth ----------
 const SESSION_SECRET = process.env.SESSION_SECRET || 'docker-monitor-session-secret-2024';
-
 const CRED_USERNAME = process.env.ADMIN_USER || 'admin';
 const CRED_PASSWORD = process.env.ADMIN_PASS || 'admin';
+
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
@@ -147,6 +167,49 @@ function formatBytes(bytes) {
   return `${(bytes / 1024).toFixed(1)}KB`;
 }
 
+// ---------- Mock container snapshot (when MOCK_MODE=1 and no Docker daemon) ----------
+function generateMockSnapshot(poolEntry, idx) {
+  const id = String(idx);
+  const name = poolEntry.name.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+
+  // Vary metrics slightly each poll to keep sparklines alive
+  const t = Date.now() / 1000;
+  const cpuJitter = 3 * Math.sin(t / (60 + poolEntry.cpuSigma * 5)) + 2 * Math.sin(t / 37);
+  const memJitter = 2 * Math.sin(t / (45 + poolEntry.cpuSigma * 3)) + Math.sin(t / 23);
+  const cpu = poolEntry.cpuSigma + cpuJitter;
+  const memUsage = poolEntry.memBase + memJitter * 1e6;
+  const memLimit = poolEntry.memLimit || (poolEntry.memBase * 4);
+  const mem = memLimit > 0 ? (memUsage / memLimit) * 100 : 0;
+  const netRx = poolEntry.netRxBase + 0.1e6 * Math.sin(t / 53);
+  const netTx = poolEntry.netTxBase + 0.05e6 * Math.sin(t / 41 + 1);
+
+  return {
+    id: String(mockContainerIndex),
+    name: name,
+    image: poolEntry.image,
+    status: poolEntry.state === 'running' ? 'RUNNING' : poolEntry.state.toUpperCase(),
+    health: poolEntry.health,
+    restartCount: poolEntry.state === 'exited' ? 3 : Math.floor(Math.random() * 10),
+    ports: Object.entries(poolEntry.exposedPorts).flatMap(([privatePort, bindings]) => {
+      const [portNum, type] = privatePort.split('/');
+      if (!bindings || !bindings.length) return [{ PrivatePort: parseInt(portNum), Type: type }];
+      return bindings.map((b) => ({
+        IP: b.HostIp || '0.0.0.0',
+        PublicPort: b.HostPort ? parseInt(b.HostPort) : null,
+        PrivatePort: parseInt(portNum),
+        Type: type,
+      }));
+    }),
+    cpu: Math.max(0, cpu),
+    mem: Math.max(0, Math.min(100, mem)),
+    memUsage: memUsage,
+    memLimit: memLimit,
+    netRx: netRx,
+    netTx: netTx,
+    uptime: poolEntry.startedAt ? humanizeUptime(poolEntry.startedAt) : '-',
+  };
+}
+
 function cpuPercentFromStats(stats) {
   try {
     const cpuDelta =
@@ -208,6 +271,8 @@ function demuxDockerLogBuffer(buffer, isTty) {
 }
 
 async function getContainerSnapshot(containerInfo) {
+  if (MOCK_MODE) return generateMockSnapshot(containerInfo);
+
   const container = docker.getContainer(containerInfo.Id);
   const base = {
     id: containerInfo.Id.substring(0, 12),
@@ -272,6 +337,15 @@ function sortContainers(containers) {
 // ---------- Polling ----------
 async function pollContainers() {
   try {
+    if (MOCK_MODE) {
+      const snapshots = MOCK_CONTAINER_POOL.map((p, i) => generateMockSnapshot(p, i));
+      const sorted = sortContainers(snapshots);
+      const visibleSet = new Set(guestConfig.visibleContainerIds);
+      const visibleOnly = sorted.filter((c) => visibleSet.has(c.id));
+      io.to('admin').emit('containers', sorted);
+      io.to('guest').emit('containers', visibleOnly);
+      return;
+    }
     const containers = await docker.listContainers({ all: true });
     const snapshots = await Promise.all(containers.map(getContainerSnapshot));
     const sorted = sortContainers(snapshots);
@@ -337,7 +411,61 @@ function describeDockerEvent(evt) {
   return `[${evt.Type}] ${evt.Action} :: ${actorName}`;
 }
 
+// Mock event generator: cycles through container names with realistic Docker event actions
+const MOCK_EVENTS = [
+  { type: 'container', action: 'exec_create',   cmd: '/usr/sbin/health.sh' },
+  { type: 'container', action: 'exec_start',    cmd: '/usr/sbin/health.sh' },
+  { type: 'container', action: 'exec_die',      cmd: null },
+  { type: 'container', action: 'health_status_update', status: 'healthy' },
+  { type: 'container', action: 'death',         cmd: null },
+  { type: 'network',    action: 'connect',      name: 'bridge' },
+  { type: 'volume',     action: 'mount',        name: 'data-vol' },
+];
+
+let mockEventIndex = 0;
 function attachDockerEventStream() {
+  if (MOCK_MODE) {
+    // Generate mock events on a 30-second cycle so the Events Log panel has activity
+    const cycleMs = 30000;
+    const interval = setInterval(() => {
+      const template = MOCK_EVENTS[mockEventIndex % MOCK_EVENTS.length];
+      mockEventIndex++;
+      const poolEntry = MOCK_CONTAINER_POOL[mockEventIndex % MOCK_CONTAINER_POOL.length];
+      let line;
+      const actorName = poolEntry.name;
+
+      switch (template.action) {
+        case 'exec_create':
+          line = `[container] exec_create: /bin/sh -c ${template.cmd} :: ${actorName}`;
+          break;
+        case 'exec_start':
+          line = `[container] exec_start: /bin/sh -c ${template.cmd} :: ${actorName}`;
+          break;
+        case 'exec_die':
+          line = `[container] exec_die :: ${actorName}`;
+          break;
+        case 'health_status_update':
+          line = `[container] health_status_update: ${template.status} :: ${actorName}`;
+          break;
+        case 'death':
+          line = `[container] die :: ${actorName}`;
+          break;
+        case 'connect':
+          line = `[network] connect :: ${actorName}`;
+          break;
+        case 'mount':
+          line = `[volume] mount :: ${actorName}`;
+          break;
+        default:
+          line = `[container] ${template.action} :: ${actorName}`;
+      }
+      pushEvent(line, true);
+    }, cycleMs);
+    // Store interval so it can be cleaned up if needed
+    mockEventInterval = interval;
+    return;
+  }
+
   docker.getEvents({}, (err, stream) => {
     if (err) {
       pushEvent(`ERROR attaching to docker event stream: ${err.message}`, false);
@@ -363,8 +491,23 @@ function attachDockerEventStream() {
   });
 }
 
+let mockEventInterval = null;
+
 // ---------- On-demand container detail (expanded row): logs, env, ports, disk ----------
 async function getContainerDetail(id) {
+  if (MOCK_MODE) {
+    const poolEntry = MOCK_CONTAINER_POOL.find((p) => p.name === id || ('mock_' + id) === id);
+    if (!poolEntry) {
+      // Try matching by index in the pool
+      const idx = parseInt(id);
+      if (!isNaN(idx) && idx >= 0 && idx < MOCK_CONTAINER_POOL.length) {
+        return getMockDetailForPoolEntry(MOCK_CONTAINER_POOL[idx]);
+      }
+      throw new Error('Container not found in mock pool');
+    }
+    return getMockDetailForPoolEntry(poolEntry);
+  }
+
   const container = docker.getContainer(id);
   const inspect = await container.inspect({ size: true });
 
@@ -403,6 +546,43 @@ async function getContainerDetail(id) {
     sizeRw: inspect.SizeRw || 0,
     sizeRootFs: inspect.SizeRootFs || 0,
     logs: logText.split('\n').filter((l) => l.length > 0).slice(-80),
+  };
+}
+
+function getMockDetailForPoolEntry(poolEntry) {
+  const logs = [
+    '2024-01-15T08:00:01Z INFO  Service starting up',
+    '2024-01-15T08:00:02Z INFO  Loading configuration from /etc/config.ini',
+    '2024-01-15T08:00:03Z INFO  Database connection established',
+    '2024-01-15T08:00:05Z INFO  Listening on port ' + (poolEntry.exposedPorts ? Object.keys(poolEntry.exposedPorts)[0] || '8080' : '8080'),
+    '2024-01-15T08:00:10Z INFO  Health check endpoint registered',
+    '2024-01-15T08:15:22Z INFO  Request processed: GET /api/status',
+    '2024-01-15T08:30:45Z WARN  High memory usage detected: 78%',
+    '2024-01-15T08:31:00Z INFO  Garbage collection triggered',
+    '2024-01-15T09:00:00Z INFO  Periodic health check OK',
+    '2024-01-15T09:15:33Z INFO  Request processed: POST /api/data',
+  ];
+  return {
+    id: poolEntry.name.substring(0, 12),
+    name: poolEntry.name,
+    env: ['NODE_ENV=production', 'LOG_LEVEL=info', 'PORT=8080'],
+    ports: formatPorts(
+      Object.entries(poolEntry.exposedPorts).flatMap(([privatePort, bindings]) => {
+        const [portNum, type] = privatePort.split('/');
+        if (!bindings || !bindings.length) return [{ PrivatePort: parseInt(portNum), Type: type }];
+        return bindings.map((b) => ({
+          IP: b.HostIp || '0.0.0.0',
+          PublicPort: b.HostPort ? parseInt(b.HostPort) : null,
+          PrivatePort: parseInt(portNum),
+          Type: type,
+        }));
+      })
+    ),
+    restartCount: poolEntry.state === 'exited' ? 3 : Math.floor(Math.random() * 10),
+    health: poolEntry.health,
+    sizeRw: Math.floor(Math.random() * 500e6),
+    sizeRootFs: Math.floor(Math.random() * 2e9),
+    logs: logs,
   };
 }
 
@@ -451,7 +631,7 @@ io.on('connection', (socket) => {
 });
 
 // ---------- Boot ----------
-pushEvent('docker-monitor server started', false);
+pushEvent('docker-monitor server started' + (MOCK_MODE ? ' [MOCK MODE — no Docker daemon]' : ''), false);
 attachDockerEventStream();
 setInterval(pollContainers, POLL_INTERVAL_MS);
 setInterval(pollSystemResources, POLL_INTERVAL_MS);
@@ -460,4 +640,7 @@ server.listen(PORT, () => {
   console.log(`docker-monitor listening on http://localhost:${PORT}`);
   console.log(`  Admin:      http://localhost:${PORT}/        (login required)`);
   console.log(`  Guest view: http://localhost:${PORT}/guest    (public, read-only)`);
+  if (MOCK_MODE) {
+    console.log(`  [MOCK MODE] Using ${MOCK_CONTAINER_POOL.length} synthetic containers — no Docker daemon required`);
+  }
 });

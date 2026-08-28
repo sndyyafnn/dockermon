@@ -97,8 +97,12 @@ let sortKey = 'cpu';
 let sortDir = 'desc'; // 'asc' | 'desc'
 
 // ---------- Visibility filtering for guests (defense-in-depth) ----------
+// Server already filters; this is a second line of defense.
+// Guard: skip filtering until visibilityConfig is populated (server will have already
+// filtered by then, so we don't accidentally remove everything).
 function filterByVisibility(containers) {
   if (!guestMode) return containers;
+  if (!visibilityConfig || !visibilityConfig.visibleIds || !visibilityConfig.visibleIds.length) return containers;
   const visible = new Set(visibilityConfig.visibleIds);
   return containers.filter((c) => visible.has(c.id));
 }
