@@ -127,40 +127,70 @@ function formatBytes(bytes) {
 }
 
 function formatRate(bytesPerSec) {
-  if (!bytesPerSec || bytesPerSec <= 0) return '0.0MB/s';
+  if (!bytesPerSec || bytesPerSec <= 0) return '0.0 MB/s';
   const mb = bytesPerSec / (1024 * 1024);
-  return `${mb.toFixed(1)}MB/s`;
+  return `${mb.toFixed(1)} MB/s`;
 }
 
-function asciiBar(percent, width = 8) {
+function renderSegmentedMeter(percent, numSegs = 10) {
   const pct = Math.max(0, Math.min(100, percent || 0));
-  const filled = Math.round((pct / 100) * width);
-  const bar = '█'.repeat(filled) + '░'.repeat(width - filled);
-  return `[${bar}] ${pct.toFixed(0)}%`;
+  const filled = Math.round((pct / 100) * numSegs);
+  let html = '<div class="meter-segmented">';
+  for (let i = 0; i < numSegs; i++) {
+    const isFilled = i < filled;
+    const isCrit = pct >= 85;
+    const isWarn = pct >= 65;
+    const cls = isFilled ? (isCrit ? 'filled crit' : isWarn ? 'filled warn' : 'filled') : '';
+    html += `<span class="seg ${cls}"></span>`;
+  }
+  html += ` <span style="font-size:10px; font-weight:700; margin-left:4px;">${pct.toFixed(0)}%</span></div>`;
+  return html;
 }
 
-// ---------- SVG Sparklines ----------
-function sparklineSvg(values, maxVal, color, height = 24, width = 120) {
-  if (!values || !values.length) return '';
-  const effectiveMax = maxVal > 0 ? maxVal : Math.max(...values, 1);
-  const pts = values.map((v, i) => {
-    const x = (i / (values.length - 1)) * width;
-    const y = height - (Math.max(0, Math.min(1, v / effectiveMax)) * height);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-  return `<svg class="spark-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
-  </svg>`;
+function renderEqualizerBars(containers) {
+  const container = document.getElementById('equalizer-bars');
+  if (!container) return;
+  const numBars = 24;
+  const loads = new Array(numBars).fill(4);
+
+  if (containers && containers.length) {
+    containers.forEach((c, idx) => {
+      const bIdx = idx % numBars;
+      const val = Math.max(8, Math.min(100, (c.cpu * 1.5) + (c.mem * 0.5) || 12));
+      loads[bIdx] = Math.max(loads[bIdx], val);
+    });
+  }
+
+  const time = Date.now() / 1000;
+  let html = '';
+  for (let i = 0; i < numBars; i++) {
+    const jitter = Math.abs(Math.sin(time + i)) * 15;
+    const hPct = Math.max(6, Math.min(100, (loads[i] || 10) + jitter));
+    const levelClass = hPct >= 75 ? 'level-high' : hPct >= 45 ? 'level-mid' : 'level-low';
+    html += `<div class="eq-bar ${levelClass}" style="height: ${hPct.toFixed(0)}%;"></div>`;
+  }
+  container.innerHTML = html;
 }
 
-function sparkline(values, maxVal) {
-  if (!values || !values.length) return '';
-  const effectiveMax = maxVal > 0 ? maxVal : Math.max(...values, 1);
-  return values.map((v) => {
-    const norm = Math.max(0, Math.min(1, v / effectiveMax));
-    const idx = Math.min(SPARK_CHARS.length - 1, Math.floor(norm * SPARK_CHARS.length));
-    return SPARK_CHARS[idx];
-  }).join('');
+function renderSegmentedGauge(elId, valId, percent, subId, formatFn, numSegs = 18) {
+  const bar = document.getElementById(elId);
+  const val = document.getElementById(valId);
+  const sub = subId ? document.getElementById(subId) : null;
+  const pct = Math.max(0, Math.min(100, percent || 0));
+
+  if (val) val.textContent = `${pct.toFixed(0)}%`;
+  if (sub && formatFn) sub.textContent = formatFn();
+
+  if (!bar) return;
+  const filled = Math.round((pct / 100) * numSegs);
+  let html = '';
+  for (let i = 0; i < numSegs; i++) {
+    const isFilled = i < filled;
+    const colorClass = pct >= 85 ? 'red' : pct >= 65 ? 'orange' : 'green';
+    const cls = isFilled ? `on ${colorClass}` : '';
+    html += `<div class="gauge-seg ${cls}"></div>`;
+  }
+  bar.innerHTML = html;
 }
 
 // ---------- History update ----------
@@ -505,37 +535,39 @@ function renderDetailPanel(id) {
   if (!guestMode) {
     if (isRunning) {
       actionBtnsHtml = `
-        <button type="button" class="action-btn action-stop" data-action="stop" data-id="${escapeHtml(id)}">■ STOP</button>
-        <button type="button" class="action-btn action-restart" data-action="restart" data-id="${escapeHtml(id)}">↻ RESTART</button>
-        <button type="button" class="action-btn action-pause" data-action="pause" data-id="${escapeHtml(id)}">⏸ PAUSE</button>`;
+        <button type="button" class="action-btn stop" data-action="stop" data-id="${escapeHtml(id)}">[ STOP ]</button>
+        <button type="button" class="action-btn restart" data-action="restart" data-id="${escapeHtml(id)}">[ RESTART ]</button>
+        <button type="button" class="action-btn pause" data-action="pause" data-id="${escapeHtml(id)}">[ PAUSE ]</button>`;
     } else if (isPaused) {
       actionBtnsHtml = `
-        <button type="button" class="action-btn action-unpause" data-action="unpause" data-id="${escapeHtml(id)}">▶ UNPAUSE</button>
-        <button type="button" class="action-btn action-stop" data-action="stop" data-id="${escapeHtml(id)}">■ STOP</button>`;
+        <button type="button" class="action-btn start" data-action="unpause" data-id="${escapeHtml(id)}">[ UNPAUSE ]</button>
+        <button type="button" class="action-btn stop" data-action="stop" data-id="${escapeHtml(id)}">[ STOP ]</button>`;
     } else {
       actionBtnsHtml = `
-        <button type="button" class="action-btn action-start" data-action="start" data-id="${escapeHtml(id)}">▶ START</button>`;
+        <button type="button" class="action-btn start" data-action="start" data-id="${escapeHtml(id)}">[ START ]</button>`;
     }
   }
 
   return `
-    <div class="detail-panel">
-      <div class="detail-meta">
-        <span>DISK (writable layer): <b>${formatBytes(detail.sizeRw)}</b></span>
+    <div class="detail-drawer">
+      <div class="detail-header-meta">
+        <span>WRITABLE LAYER: <b>${formatBytes(detail.sizeRw)}</b></span>
         <span>ROOT FS: <b>${formatBytes(detail.sizeRootFs)}</b></span>
-        <button type="button" class="refresh-btn" data-refresh="${escapeHtml(id)}">↻ refresh</button>
-        ${actionBtnsHtml ? `<div class="action-btn-group">${actionBtnsHtml}</div>` : ''}
+        <button type="button" class="action-btn" data-refresh="${escapeHtml(id)}">[ REFRESH ]</button>
+        ${actionBtnsHtml ? `<div class="action-buttons-group">${actionBtnsHtml}</div>` : ''}
       </div>
-      <div class="detail-section">
-        <div class="detail-heading">PORTS</div>
-        ${portsHtml}
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div>
+          <div style="color:var(--text-muted); font-size:10px; font-weight:700; margin-bottom:4px;">PUBLISHED PORTS</div>
+          ${portsHtml}
+        </div>
+        <div>
+          <div style="color:var(--text-muted); font-size:10px; font-weight:700; margin-bottom:4px;">ENVIRONMENT VARS</div>
+          ${envHtml}
+        </div>
       </div>
-      <div class="detail-section">
-        <div class="detail-heading">ENV</div>
-        ${envHtml}
-      </div>
-      <div class="detail-heading detail-logs-heading" style="grid-column: 1 / span 2;">LOGS (last ${detail.logs.length} lines)</div>
-      <div class="detail-logs">${logsHtml}</div>
+      <div style="color:var(--text-muted); font-size:10px; font-weight:700; margin-top:4px;">LOG STREAM (LAST ${detail.logs.length} LINES)</div>
+      <div class="drawer-logs">${logsHtml}</div>
     </div>`;
 }
 
@@ -744,6 +776,28 @@ function renderContainers() {
   // Apply visibility filtering for guests (defense-in-depth — server already filters)
   containers = filterByVisibility(containers);
 
+  // Update header and summary metric cards
+  const total = latestContainers.length;
+  const online = latestContainers.filter((c) => c.status === 'RUNNING').length;
+  const offline = total - online;
+
+  const hTotal = document.getElementById('h-total-units');
+  const hOnline = document.getElementById('h-online-units');
+  const hOffline = document.getElementById('h-offline-units');
+  if (hTotal) hTotal.textContent = total;
+  if (hOnline) hOnline.textContent = online;
+  if (hOffline) hOffline.textContent = offline;
+
+  const cardRatio = document.getElementById('card-ratio-val');
+  const subOnline = document.getElementById('card-sub-online');
+  const subOffline = document.getElementById('card-sub-offline');
+  if (cardRatio) cardRatio.textContent = `${online}/${total}`;
+  if (subOnline) subOnline.textContent = `● ${online} Online`;
+  if (subOffline) subOffline.textContent = `● ${offline} Stopped`;
+
+  // Update Compute Equalizer Spectrum (Inspired by Reference Image 1)
+  renderEqualizerBars(latestContainers);
+
   // Admin: render table
   if (!guestMode) {
     renderAdminTable(containers, latestContainers);
@@ -758,17 +812,18 @@ function renderAdminTable(containers, allContainers) {
   const rows = applyFilters(containers);
   const totalShown = rows.length;
   const totalAvailable = allContainers.length;
-  const visibleCount = visibilityConfig.visibleIds.length;
 
-  containerCountEl.textContent = `${totalShown} / ${totalAvailable} shown  ·  ${visibleCount} visible to guests`;
+  if (containerCountEl) {
+    containerCountEl.textContent = `${totalShown} / ${totalAvailable}`;
+  }
 
   if (!allContainers.length) {
-    containersBody.innerHTML = '<tr><td colspan="10" class="empty">waiting for data…</td></tr>';
+    containersBody.innerHTML = '<tr><td colspan="9" class="empty-state">WAITING FOR CONTAINER DATA...</td></tr>';
     renderVisibilityToggles([]);
     return;
   }
   if (!rows.length) {
-    containersBody.innerHTML = '<tr><td colspan="10" class="empty">no containers match filters</td></tr>';
+    containersBody.innerHTML = '<tr><td colspan="9" class="empty-state">NO CONTAINERS MATCH FILTER QUERY</td></tr>';
     renderVisibilityToggles([]);
     return;
   }
@@ -784,70 +839,33 @@ function renderAdminTable(containers, allContainers) {
         .filter(Boolean)
         .join(' ');
       const alertBadge = alert ? `<span class="alert-badge ${alert.level}">${alert.label}</span>` : '';
-      const h = history.get(c.id) || { cpu: [], mem: [], netRate: [] };
       const visible = visibilityConfig.visibleIds.includes(c.id);
 
-      // Guest mode: hide toggle column and VIS column
-      if (guestMode) {
-        // Guest sees 8 columns (no toggle, no VIS)
-        return `
-          <tr data-id="${escapeHtml(c.id)}" class="${rowClasses}">
-            <td class="container-id">${escapeHtml(c.id)}</td>
-            <td class="container-name">${escapeHtml(c.name)}</td>
-            <td><span class="status-pill ${statusClass}">[${escapeHtml(c.status)}]</span></td>
-            <td>${healthBadge(c.health, c.restartCount)}</td>
-            <td class="meter">
-              <div>${asciiBar(c.cpu)}${alertBadge}</div>
-              <div class="spark">${sparkline(h.cpu, 100)}</div>
-            </td>
-            <td class="meter">
-              <div>${asciiBar(c.mem)}</div>
-              <div class="spark">${sparkline(h.mem, 100)}</div>
-            </td>
-            <td>
-              <div>${formatBytes(c.netRx)} IN / ${formatBytes(c.netTx)} OUT</div>
-              <div class="spark">${sparkline(h.netRate)}</div>
-            </td>
-            <td>${escapeHtml(c.uptime)}</td>
-          </tr>`;
-      }
-
-      // Admin view: 10 columns (VIS + toggle + 8 data)
-      const toggleCol = `<td class="col-toggle"><button type="button" class="row-toggle ${isOpen ? 'open' : ''}" data-toggle="${escapeHtml(c.id)}">${isOpen ? '▾' : '▸'}</button></td>`;
+      // Admin view: 9 columns (VIS + toggle + data columns)
+      const toggleCol = `<td class="col-toggle"><button type="button" class="row-toggle ${isOpen ? 'open' : ''}" data-toggle="${escapeHtml(c.id)}" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-weight:700;">${isOpen ? '▼' : '►'}</button></td>`;
       const visCol = `<td class="vis-toggle-col-cell"><span class="vis-indicator ${visible ? 'vis-on' : 'vis-off'}" title="${visible ? 'Visible to guests' : 'Hidden from guests'}"></span></td>`;
 
       const mainRow = `
         <tr data-id="${escapeHtml(c.id)}" class="${rowClasses}">
           ${visCol}
           ${toggleCol}
-          <td class="container-id">${escapeHtml(c.id)}</td>
+          <td class="container-id">[ ${escapeHtml(c.id.substring(0, 8))} ]</td>
           <td class="container-name" data-toggle="${escapeHtml(c.id)}">${escapeHtml(c.name)}</td>
-          <td><span class="status-pill ${statusClass}">[${escapeHtml(c.status)}]</span></td>
+          <td><span class="status-pill ${statusClass}">${escapeHtml(c.status)}</span></td>
           <td>${healthBadge(c.health, c.restartCount)}</td>
-          <td class="meter">
-            <div>${asciiBar(c.cpu)}${alertBadge}</div>
-            <div class="spark">${sparkline(h.cpu, 100)}</div>
-          </td>
-          <td class="meter">
-            <div>${asciiBar(c.mem)}</div>
-            <div class="spark">${sparkline(h.mem, 100)}</div>
-          </td>
-          <td>
-            <div>${formatBytes(c.netRx)} IN / ${formatBytes(c.netTx)} OUT</div>
-            <div class="spark">${sparkline(h.netRate)}</div>
-          </td>
-          <td>${escapeHtml(c.uptime)}</td>
+          <td class="meter">${renderSegmentedMeter(c.cpu)}${alertBadge}</td>
+          <td class="meter">${renderSegmentedMeter(c.mem)}</td>
+          <td style="color:var(--text-secondary);">${escapeHtml(c.uptime)}</td>
         </tr>`;
 
       const detailRow = isOpen
-        ? `<tr class="detail-row"><td colspan="10">${renderDetailPanel(c.id)}</td></tr>`
+        ? `<tr class="detail-row"><td colspan="9">${renderDetailPanel(c.id)}</td></tr>`
         : '';
 
       return mainRow + detailRow;
     })
     .join('');
 
-  // Render visibility toggle buttons in the VIS column after the table is built
   renderVisibilityToggles(latestContainers);
 }
 
@@ -985,23 +1003,25 @@ function setGuestBar(barId, valId, percent, subId, formatFn) {
 }
 
 socket.on('system', (sys) => {
-  if (!guestMode) {
-    setBar('bar-cpu', 'val-cpu', sys.cpu.percent);
-    setBar('bar-mem', 'val-mem', sys.mem.percent);
-    document.getElementById('sub-mem').textContent =
-      `${formatBytes(sys.mem.used)} / ${formatBytes(sys.mem.total)}`;
-    setBar('bar-disk', 'val-disk', sys.disk.percent);
-    setBar('bar-net', 'val-net', sys.network.percent);
-    document.getElementById('sub-net').textContent =
-      `${formatRate(sys.network.rxSec)} IN / ${formatRate(sys.network.txSec)} OUT`;
-  } else {
-    setGuestBar('guest-bar-cpu', 'guest-val-cpu', sys.cpu.percent);
-    setGuestBar('guest-bar-mem', 'guest-val-mem', sys.mem.percent, 'guest-sub-mem',
-      () => `${formatBytes(sys.mem.used)} / ${formatBytes(sys.mem.total)}`);
-    setGuestBar('guest-bar-disk', 'guest-val-disk', sys.disk.percent);
-    setGuestBar('guest-bar-net', 'guest-val-net', sys.network.percent, 'guest-sub-net',
-      () => `${formatRate(sys.network.rxSec)} IN / ${formatRate(sys.network.txSec)} OUT`);
-  }
+  renderSegmentedGauge('g-bar-cpu', 'g-val-cpu', sys.cpu.percent);
+  renderSegmentedGauge('g-bar-mem', 'g-val-mem', sys.mem.percent, 'g-sub-mem',
+    () => `${formatBytes(sys.mem.used)} / ${formatBytes(sys.mem.total)}`);
+  renderSegmentedGauge('g-bar-disk', 'g-val-disk', sys.disk.percent);
+
+  const cardCpuVal = document.getElementById('card-cpu-val');
+  const cardCpuFill = document.getElementById('card-cpu-fill');
+  if (cardCpuVal) cardCpuVal.textContent = `${sys.cpu.percent.toFixed(0)}%`;
+  if (cardCpuFill) cardCpuFill.style.width = `${Math.min(100, sys.cpu.percent)}%`;
+
+  const cardRamVal = document.getElementById('card-ram-val');
+  const cardRamSub = document.getElementById('card-ram-sub');
+  if (cardRamVal) cardRamVal.textContent = `${sys.mem.percent.toFixed(0)}%`;
+  if (cardRamSub) cardRamSub.textContent = `${formatBytes(sys.mem.used)} / ${formatBytes(sys.mem.total)}`;
+
+  const cardNetVal = document.getElementById('card-net-val');
+  const cardNetSub = document.getElementById('card-net-sub');
+  if (cardNetVal) cardNetVal.textContent = formatRate(sys.network.rxSec + sys.network.txSec);
+  if (cardNetSub) cardNetSub.textContent = `${formatRate(sys.network.rxSec)} IN / ${formatRate(sys.network.txSec)} OUT`;
 });
 
 function renderEvent(entry) {

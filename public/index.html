@@ -3,195 +3,215 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DOCKER DASHBOARD // CRT PHOSPHOR MONITOR</title>
+  <title>RESOURCE OVERVIEW // DOCKERMON TELEMETRY</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@500;700;800;900&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="crt-body">
-  <!-- SVG Barrel Warp Filter for Glass Curvature Distortion -->
-  <svg style="display:none;" width="0" height="0">
-    <filter id="crt-barrel-warp">
-      <feTurbulence type="fractalNoise" baseFrequency="0.00001 0.00001" numOctaves="1" result="noise" />
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3" xChannelSelector="R" yChannelSelector="G" />
-    </filter>
-  </svg>
+<body class="telemetry-body">
 
-  <!-- ========== GUEST BANNER (shown only in guest mode) ========== -->
+  <!-- ========== GUEST BANNER (Guest mode read-only banner) ========== -->
   <div id="guest-banner" class="hidden">
     <div class="guest-banner-inner">
-      <span>GUEST VIEW — READ ONLY PHOSPHOR MONITOR</span>
+      <span class="telemetry-tag">[ GUEST ACCESS ]</span> READ-ONLY TELEMETRY STREAM
     </div>
   </div>
 
-  <!-- Frameless CRT Screen Tube Wrapper -->
-  <div class="crt-screen crt-curved-active">
-    <div class="crt-vignette"></div>
-    <div class="crt-glare"></div>
-    <div class="crt-scanlines"></div>
+  <!-- ========== FULL-BLEED DASHBOARD CONTAINER ========== -->
+  <div class="telemetry-app">
 
-    <div class="crt-content">
-      <!-- ========== TOPBAR (shared, guest mode hides admin controls) ========== -->
-      <header class="topbar">
-        <div class="tabs">
-          <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-          <span class="tab active">SYS.LOG//DOCKERMON_V1</span>
-        </div>
-        <div class="topbar-right">
-          <button type="button" id="crt-curve-toggle" class="badge crt-toggle-btn">[CRT CURVE: ON]</button>
-          <button type="button" id="alerts-toggle" class="badge alerts-off">ALERTS OFF</button>
-          <button type="button" id="logout-btn" class="badge logout-btn" style="display:none;">LOGOUT</button>
-          <span id="conn-status" class="badge disconnected">CONNECTING</span>
-          <span id="clock" class="clock"></span>
-          <span id="guest-live-indicator" class="badge-live hidden">
-            <span class="live-dot"></span> LIVE
-          </span>
-          <span id="guest-last-update" class="guest-timestamp hidden"></span>
-        </div>
-      </header>
+    <!-- Top Telemetry Header -->
+    <header class="telemetry-header">
+      <div class="brand-block">
+        <h1 class="brand-title">RESOURCE OVERVIEW</h1>
+        <div class="brand-sub">[ ENGINE: DOCKER_HOST ] <span class="brand-dot">●</span> LIVE</div>
+      </div>
+      <div class="header-metrics">
+        <div class="h-metric"><span class="h-label">[ UNITS:</span> <span id="h-total-units" class="h-val">0</span> <span class="h-label">]</span></div>
+        <div class="h-metric"><span class="h-label">[ ONLINE:</span> <span id="h-online-units" class="h-val green">0</span> <span class="h-label">]</span></div>
+        <div class="h-metric"><span class="h-label">[ OFFLINE:</span> <span id="h-offline-units" class="h-val red">0</span> <span class="h-label">]</span></div>
+      </div>
+      <div class="header-actions">
+        <button type="button" id="alerts-toggle" class="telemetry-btn alerts-off">ALERTS OFF</button>
+        <button type="button" id="logout-btn" class="telemetry-btn logout-btn" style="display:none;">LOGOUT</button>
+        <span id="conn-status" class="telemetry-badge disconnected">CONNECTING</span>
+        <span id="clock" class="telemetry-clock">00:00:00</span>
+        <span id="guest-live-indicator" class="badge-live hidden">
+          <span class="live-dot"></span> LIVE
+        </span>
+        <span id="guest-last-update" class="guest-timestamp hidden"></span>
+      </div>
+    </header>
 
-    <!-- ========== TITLEBAR (hidden in guest mode) ========== -->
-    <div class="titlebar">DOCKER DASHBOARD</div>
-
-    <!-- ========== MAIN CONTENT ========== -->
-    <main>
-      <!-- ====== GUEST SYSTEM OVERVIEW (shown only in guest mode) ====== -->
-      <section class="guest-overview-panel hidden">
-        <div class="guest-overview-grid">
-          <div class="guest-stat">
-            <div class="guest-stat-label">SERVICES</div>
-            <div class="guest-stat-value" id="guest-services-count">0</div>
-          </div>
-          <div class="guest-stat">
-            <div class="guest-stat-label">ONLINE</div>
-            <div class="guest-stat-value" id="guest-online-count">0</div>
-          </div>
-          <div class="guest-stat">
-            <div class="guest-stat-label">OFFLINE</div>
-            <div class="guest-stat-value" id="guest-offline-count">0</div>
-          </div>
-          <div class="guest-stat">
-            <div class="guest-stat-label">UNHEALTHY</div>
-            <div class="guest-stat-value" id="guest-unhealthy-count">0</div>
-          </div>
-          <div class="guest-system-status" id="guest-system-status">
-            <span class="sys-status-dot"></span>
-            <span class="sys-status-label">INITIALIZING</span>
-          </div>
+    <!-- Top Summary Metric Cards Row -->
+    <section class="summary-cards-grid">
+      <div class="metric-card">
+        <div class="card-header">
+          <span class="card-tag">01. CONTAINER RATIO</span>
+          <span class="card-badge">[ DEPLOYED ]</span>
         </div>
-      </section>
-
-      <!-- ====== ADMIN: CONTAINERS PANEL (table, hidden in guest mode) ====== -->
-      <section class="panel containers-panel">
-        <div class="panel-title-row">
-          <div class="panel-title">CONTAINER STATUS</div>
-          <div class="panel-count" id="container-count"></div>
+        <div class="card-big-number" id="card-ratio-val">0/0</div>
+        <div class="card-sub-stats">
+          <span class="sub-item green" id="card-sub-online">● 0 Online</span>
+          <span class="sub-item red" id="card-sub-offline">● 0 Stopped</span>
         </div>
-        <div class="controls-bar">
-          <label class="search-field">
-            <span class="search-prompt">grep&gt;</span>
-            <input type="text" id="search-input" placeholder="filter by name…" autocomplete="off" spellcheck="false" />
-          </label>
+      </div>
+
+      <div class="metric-card">
+        <div class="card-header">
+          <span class="card-tag">02. COMPUTE LOAD</span>
+          <span class="card-badge" id="card-cpu-badge">[ HOST CPU ]</span>
+        </div>
+        <div class="card-big-number orange" id="card-cpu-val">0%</div>
+        <div class="card-meter-bar">
+          <div class="meter-fill orange" id="card-cpu-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="card-header">
+          <span class="card-tag">03. RAM DEPLOYED</span>
+          <span class="card-badge" id="card-ram-badge">[ MEMORY ]</span>
+        </div>
+        <div class="card-big-number green" id="card-ram-val">0%</div>
+        <div class="card-sub-text" id="card-ram-sub">0 MB / 0 MB</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="card-header">
+          <span class="card-tag">04. STREAM RATE</span>
+          <span class="card-badge">[ NET I/O ]</span>
+        </div>
+        <div class="card-big-number yellow" id="card-net-val">0.0 MB/s</div>
+        <div class="card-sub-text" id="card-net-sub">0.0 IN / 0.0 OUT</div>
+      </div>
+    </section>
+
+    <!-- Main Content 2-Column Grid -->
+    <div class="main-telemetry-grid">
+
+      <!-- Left Main Column: Container Telemetry List -->
+      <main class="telemetry-main-panel">
+        
+        <!-- Controls Bar -->
+        <div class="telemetry-controls-bar">
+          <div class="search-input-wrap">
+            <span class="search-tag">grep ></span>
+            <input type="text" id="search-input" placeholder="filter by name or id..." autocomplete="off" spellcheck="false" />
+          </div>
           <div class="status-filters" id="status-filters">
-            <button type="button" class="filter-btn active" data-filter="all">[ALL]</button>
-            <button type="button" class="filter-btn" data-filter="running">[RUNNING]</button>
-            <button type="button" class="filter-btn" data-filter="stopped">[STOPPED]</button>
+            <button type="button" class="filter-btn active" data-filter="all">[ ALL ]</button>
+            <button type="button" class="filter-btn" data-filter="running">[ RUNNING ]</button>
+            <button type="button" class="filter-btn" data-filter="stopped">[ STOPPED ]</button>
+          </div>
+          <div class="threshold-controls">
+            <span class="t-label">warn ></span>
+            <input type="number" id="threshold-pct" class="t-input" value="80" min="1" max="100" />
+            <span class="t-label">% CPU/MEM</span>
           </div>
         </div>
-        <div class="controls-bar threshold-bar">
-          <span class="threshold-label">warn if CPU/MEM threshold</span>
-          <input type="number" id="threshold-pct" class="threshold-input" value="80" min="1" max="100" />
-          <span class="threshold-label">% for</span>
-          <input type="number" id="threshold-sec" class="threshold-input" value="15" min="1" max="600" />
-          <span class="threshold-label">s sustained</span>
-        </div>
+
+        <!-- Containers Table / Cards Wrapper -->
         <div class="table-wrap">
-          <table id="containers-table">
+          <table id="containers-table" class="telemetry-table">
             <thead>
               <tr>
-                <th class="vis-toggle-col" style="width:44px; text-align:center; padding:8px;">VIS</th>
-                <th class="col-toggle"></th>
+                <th class="vis-toggle-col" style="width:44px; text-align:center;">VIS</th>
+                <th class="col-toggle" style="width:24px;"></th>
                 <th data-sort="id">CONTAINER ID<span class="sort-arrow"></span></th>
                 <th data-sort="name">NAME<span class="sort-arrow"></span></th>
                 <th data-sort="status">STATUS<span class="sort-arrow"></span></th>
                 <th data-sort="health">HEALTH<span class="sort-arrow"></span></th>
-                <th data-sort="cpu">CPU %<span class="sort-arrow"></span></th>
-                <th data-sort="mem">MEM %<span class="sort-arrow"></span></th>
-                <th data-sort="net">NET I/O<span class="sort-arrow"></span></th>
+                <th data-sort="cpu">CPU LOAD<span class="sort-arrow"></span></th>
+                <th data-sort="mem">MEM USAGE<span class="sort-arrow"></span></th>
                 <th data-sort="uptime">UPTIME<span class="sort-arrow"></span></th>
               </tr>
             </thead>
             <tbody id="containers-body">
-              <tr><td colspan="10" class="empty">waiting for data…</td></tr>
+              <tr><td colspan="9" class="empty-state">INITIALIZING TELEMETRY STREAM...</td></tr>
             </tbody>
           </table>
         </div>
-      </section>
 
-      <!-- ====== GUEST: CONTAINER CARDS GRID (shown only in guest mode) ====== -->
-      <section class="guest-cards-panel hidden">
-        <div class="guest-cards-header">
-          <div class="guest-panel-title">SERVICE STATUS</div>
-          <div class="guest-cards-count" id="guest-cards-count">0 services</div>
-        </div>
-        <div class="guest-cards-grid" id="guest-cards-grid">
-          <!-- Cards rendered by app.js -->
-          <div class="guest-empty-state">waiting for services…</div>
-        </div>
-      </section>
+      </main>
 
-      <!-- ====== ADMIN: RESOURCES PANEL (aside, hidden in guest mode) ====== -->
-      <!-- ====== GUEST: RESOURCES PANEL (full-width below cards, shown only in guest mode) ====== -->
-      <section class="panel guest-resources-panel hidden">
-        <div class="panel-title">SYSTEM RESOURCES</div>
-        <div class="guest-resource-rows" id="guest-resources">
-          <div class="guest-resource-row">
-            <span class="guest-resource-label">CPU</span>
-            <span class="guest-bar" id="guest-bar-cpu">
-              <span class="guest-bar-fill"></span>
-            </span>
-            <span class="guest-resource-val" id="guest-val-cpu">0%</span>
+      <!-- Right Column: Analytics & Data Stream -->
+      <aside class="telemetry-side-panel">
+        
+        <!-- Compute Equalizer Spectrum (Inspired by Reference Image 1) -->
+        <section class="side-widget">
+          <div class="widget-header">
+            <span class="widget-title">COMPUTE SPECTRUM</span>
+            <span class="widget-tag">[ 24 BARS ]</span>
           </div>
-          <div class="guest-resource-row">
-            <span class="guest-resource-label">RAM</span>
-            <span class="guest-bar" id="guest-bar-mem">
-              <span class="guest-bar-fill"></span>
-            </span>
-            <span class="guest-resource-val" id="guest-val-mem">0%</span>
+          <div class="equalizer-container" id="equalizer-bars">
+            <!-- 24 dynamic spectrum equalizer bars rendered by JS -->
           </div>
-          <div class="guest-resource-sub" id="guest-sub-mem"></div>
-          <div class="guest-resource-row">
-            <span class="guest-resource-label">DISK</span>
-            <span class="guest-bar" id="guest-bar-disk">
-              <span class="guest-bar-fill"></span>
-            </span>
-            <span class="guest-resource-val" id="guest-val-disk">0%</span>
+          <div class="equalizer-ticks">
+            <span>1</span><span>3</span><span>5</span><span>7</span><span>9</span><span>11</span><span>13</span><span>15</span><span>17</span><span>19</span><span>21</span><span>24</span>
           </div>
-          <div class="guest-resource-row">
-            <span class="guest-resource-label">NET</span>
-            <span class="guest-bar" id="guest-bar-net">
-              <span class="guest-bar-fill"></span>
-            </span>
-            <span class="guest-resource-val" id="guest-val-net">0%</span>
-          </div>
-          <div class="guest-resource-sub" id="guest-sub-net"></div>
-        </div>
-      </section>
+        </section>
 
-      <!-- ====== ADMIN: EVENTS PANEL (hidden in guest mode) ====== -->
-      <section class="panel events-panel">
-        <div class="panel-title">EVENTS LOG</div>
-        <div class="events-wrap" id="events"></div>
-      </section>
-    </main>
+        <!-- Host System Gauges (Inspired by Reference Image 3) -->
+        <section class="side-widget">
+          <div class="widget-header">
+            <span class="widget-title">HOST TELEMETRY GAUGES</span>
+            <span class="widget-tag">[ HARDWARE ]</span>
+          </div>
+          <div class="telemetry-gauges-list">
+            
+            <div class="gauge-row">
+              <div class="gauge-meta">
+                <span class="g-label">CPU LOAD</span>
+                <span class="g-val" id="g-val-cpu">0%</span>
+              </div>
+              <div class="gauge-segmented" id="g-bar-cpu">
+                <!-- 20 segments rendered by JS -->
+              </div>
+            </div>
 
-    <!-- ========== STATUSBAR (hidden in guest mode) ========== -->
-    <footer class="statusbar">
-      <span>[Press R to reconnect | <span id="poll-rate">2s</span> update]</span>
-      <span class="prompt">root@app-gateway-01:~# <span class="cursor">_</span></span>
-    </footer>
+            <div class="gauge-row">
+              <div class="gauge-meta">
+                <span class="g-label">RAM USAGE</span>
+                <span class="g-val" id="g-val-mem">0%</span>
+              </div>
+              <div class="gauge-segmented" id="g-bar-mem"></div>
+              <div class="gauge-sub" id="g-sub-mem">0 MB / 0 MB</div>
+            </div>
+
+            <div class="gauge-row">
+              <div class="gauge-meta">
+                <span class="g-label">STORAGE DISK</span>
+                <span class="g-val" id="g-val-disk">0%</span>
+              </div>
+              <div class="gauge-segmented" id="g-bar-disk"></div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- Live Data Event Stream (Inspired by Reference Image 3 Data Stream) -->
+        <section class="side-widget stream-widget">
+          <div class="widget-header">
+            <span class="widget-title">DATA STREAM</span>
+            <span class="widget-tag">[ EVENTS ]</span>
+          </div>
+          <div class="events-wrap" id="events">
+            <div class="event-line">Telemetry initialization standby...</div>
+          </div>
+        </section>
+
+      </aside>
+
     </div>
+
+    <!-- Telemetry Footer -->
+    <footer class="telemetry-footer">
+      <div class="f-left">[ STATUS: ACTIVE | REFRESH: 2S ]</div>
+      <div class="f-right"><span class="f-prompt">root@dockermon:~#</span> <span class="f-cursor">_</span></div>
+    </footer>
+
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
