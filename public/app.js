@@ -135,7 +135,7 @@ function formatRate(bytesPerSec) {
 function asciiBar(percent, width = 8) {
   const pct = Math.max(0, Math.min(100, percent || 0));
   const filled = Math.round((pct / 100) * width);
-  const bar = '|'.repeat(filled) + '-'.repeat(width - filled);
+  const bar = '█'.repeat(filled) + '░'.repeat(width - filled);
   return `[${bar}] ${pct.toFixed(0)}%`;
 }
 
@@ -427,6 +427,22 @@ async function toggleAlerts() {
 }
 
 alertsToggleBtn.addEventListener('click', toggleAlerts);
+
+const crtCurveToggleBtn = document.getElementById('crt-curve-toggle');
+const crtScreenEl = document.querySelector('.crt-screen');
+
+if (crtCurveToggleBtn && crtScreenEl) {
+  crtCurveToggleBtn.addEventListener('click', () => {
+    const isCurved = crtScreenEl.classList.contains('crt-curved-active');
+    if (isCurved) {
+      crtScreenEl.classList.remove('crt-curved-active');
+      crtCurveToggleBtn.textContent = '[CRT CURVE: OFF]';
+    } else {
+      crtScreenEl.classList.add('crt-curved-active');
+      crtCurveToggleBtn.textContent = '[CRT CURVE: ON]';
+    }
+  });
+}
 
 function clampNumber(val, min, max, fallback) {
   const n = parseInt(val, 10);

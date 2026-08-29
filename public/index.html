@@ -3,35 +3,53 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DOCKER DASHBOARD</title>
+  <title>DOCKER DASHBOARD // CRT PHOSPHOR MONITOR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body class="crt-body">
+  <!-- SVG Barrel Warp Filter for Glass Curvature Distortion -->
+  <svg style="display:none;" width="0" height="0">
+    <filter id="crt-barrel-warp">
+      <feTurbulence type="fractalNoise" baseFrequency="0.00001 0.00001" numOctaves="1" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </svg>
+
   <!-- ========== GUEST BANNER (shown only in guest mode) ========== -->
   <div id="guest-banner" class="hidden">
     <div class="guest-banner-inner">
-      <span>GUEST VIEW — READ ONLY</span>
+      <span>GUEST VIEW — READ ONLY PHOSPHOR MONITOR</span>
     </div>
   </div>
 
-  <div class="crt">
-    <!-- ========== TOPBAR (shared, guest mode hides admin controls) ========== -->
-    <header class="topbar">
-      <div class="tabs">
-        <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-        <span class="tab active">Dashboard</span>
-      </div>
-      <div class="topbar-right">
-        <button type="button" id="alerts-toggle" class="badge alerts-off">ALERTS OFF</button>
-        <button type="button" id="logout-btn" class="badge logout-btn" style="display:none;">LOGOUT</button>
-        <span id="conn-status" class="badge disconnected">CONNECTING</span>
-        <span id="clock" class="clock"></span>
-        <span id="guest-live-indicator" class="badge-live hidden">
-          <span class="live-dot"></span> LIVE
-        </span>
-        <span id="guest-last-update" class="guest-timestamp hidden"></span>
-      </div>
-    </header>
+  <!-- Frameless CRT Screen Tube Wrapper -->
+  <div class="crt-screen crt-curved-active">
+    <div class="crt-vignette"></div>
+    <div class="crt-glare"></div>
+    <div class="crt-scanlines"></div>
+
+    <div class="crt-content">
+      <!-- ========== TOPBAR (shared, guest mode hides admin controls) ========== -->
+      <header class="topbar">
+        <div class="tabs">
+          <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+          <span class="tab active">SYS.LOG//DOCKERMON_V1</span>
+        </div>
+        <div class="topbar-right">
+          <button type="button" id="crt-curve-toggle" class="badge crt-toggle-btn">[CRT CURVE: ON]</button>
+          <button type="button" id="alerts-toggle" class="badge alerts-off">ALERTS OFF</button>
+          <button type="button" id="logout-btn" class="badge logout-btn" style="display:none;">LOGOUT</button>
+          <span id="conn-status" class="badge disconnected">CONNECTING</span>
+          <span id="clock" class="clock"></span>
+          <span id="guest-live-indicator" class="badge-live hidden">
+            <span class="live-dot"></span> LIVE
+          </span>
+          <span id="guest-last-update" class="guest-timestamp hidden"></span>
+        </div>
+      </header>
 
     <!-- ========== TITLEBAR (hidden in guest mode) ========== -->
     <div class="titlebar">DOCKER DASHBOARD</div>
@@ -173,6 +191,7 @@
       <span>[Press R to reconnect | <span id="poll-rate">2s</span> update]</span>
       <span class="prompt">root@app-gateway-01:~# <span class="cursor">_</span></span>
     </footer>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
