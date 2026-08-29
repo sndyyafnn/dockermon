@@ -70,12 +70,15 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'docker-monitor-session-sec
 const CRED_USERNAME = process.env.ADMIN_USER || 'admin';
 const CRED_PASSWORD = process.env.ADMIN_PASS || 'admin';
 
-app.use(session({
+const sessionMiddleware = session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: { maxAge: 8 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax' }
-}));
+});
+
+app.use(sessionMiddleware);
+io.engine.use(sessionMiddleware);
 
 // ---------- Body parsing (required for JSON POST bodies) ----------
 app.use(express.json());
@@ -127,7 +130,7 @@ app.post('/api/logout', (req, res) => {
 // ---------- Static assets ----------
 app.use(express.static(path.join(__dirname, 'public')));
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3100;
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '2000', 10);
 const MAX_EVENTS = 200;
 
@@ -184,7 +187,7 @@ function generateMockSnapshot(poolEntry, idx) {
   const netTx = poolEntry.netTxBase + 0.05e6 * Math.sin(t / 41 + 1);
 
   return {
-    id: String(mockContainerIndex),
+    id: String(idx),
     name: name,
     image: poolEntry.image,
     status: poolEntry.state === 'running' ? 'RUNNING' : poolEntry.state.toUpperCase(),
@@ -256,18 +259,24 @@ function formatPorts(ports) {
 // header per chunk when the container was NOT created with a TTY. Strip
 // those headers so raw log text is readable. TTY containers have no framing.
 function demuxDockerLogBuffer(buffer, isTty) {
+  if (!buffer) return '';
   if (isTty) return buffer.toString('utf8');
+  if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
   let offset = 0;
   const lines = [];
-  while (offset + 8 <= buffer.length) {
-    const size = buffer.readUInt32BE(offset + 4);
-    const start = offset + 8;
-    const end = start + size;
-    if (end > buffer.length) break;
-    lines.push(buffer.slice(start, end).toString('utf8'));
-    offset = end;
+  try {
+    while (offset + 8 <= buffer.length) {
+      const size = buffer.readUInt32BE(offset + 4);
+      const start = offset + 8;
+      const end = start + size;
+      if (end > buffer.length) break;
+      lines.push(buffer.subarray(start, end).toString('utf8'));
+      offset = end;
+    }
+  } catch {
+    return buffer.toString('utf8');
   }
-  return lines.join('');
+  return lines.length > 0 ? lines.join('') : buffer.toString('utf8');
 }
 
 async function getContainerSnapshot(containerInfo) {
@@ -567,13 +576,13 @@ function getMockDetailForPoolEntry(poolEntry) {
     name: poolEntry.name,
     env: ['NODE_ENV=production', 'LOG_LEVEL=info', 'PORT=8080'],
     ports: formatPorts(
-      Object.entries(poolEntry.exposedPorts).flatMap(([privatePort, bindings]) => {
+      Object.entries(poolEntry.exposedPorts || {}).flatMap(([privatePort, bindings]) => {
         const [portNum, type] = privatePort.split('/');
-        if (!bindings || !bindings.length) return [{ PrivatePort: parseInt(portNum), Type: type }];
+        if (!bindings || !bindings.length) return [{ PrivatePort: parseInt(portNum, 10), Type: type }];
         return bindings.map((b) => ({
           IP: b.HostIp || '0.0.0.0',
-          PublicPort: b.HostPort ? parseInt(b.HostPort) : null,
-          PrivatePort: parseInt(portNum),
+          PublicPort: b.HostPort ? parseInt(b.HostPort, 10) : null,
+          PrivatePort: parseInt(portNum, 10),
           Type: type,
         }));
       })
@@ -586,15 +595,75 @@ function getMockDetailForPoolEntry(poolEntry) {
   };
 }
 
+async function performContainerAction(id, action) {
+  if (MOCK_MODE) {
+    let poolEntry = MOCK_CONTAINER_POOL.find((p) => p.name === id || ('mock_' + id) === id);
+    if (!poolEntry) {
+      const idx = parseInt(id, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < MOCK_CONTAINER_POOL.length) {
+        poolEntry = MOCK_CONTAINER_POOL[idx];
+      }
+    }
+    if (!poolEntry) throw new Error(`Container '${id}' not found in mock pool`);
+
+    switch (action) {
+      case 'start':
+        poolEntry.state = 'running';
+        poolEntry.startedAt = Date.now();
+        break;
+      case 'stop':
+        poolEntry.state = 'exited';
+        break;
+      case 'restart':
+        poolEntry.state = 'running';
+        poolEntry.startedAt = Date.now();
+        break;
+      case 'pause':
+        poolEntry.state = 'paused';
+        break;
+      case 'unpause':
+        poolEntry.state = 'running';
+        break;
+      default:
+        throw new Error(`Unknown container action '${action}'`);
+    }
+    return `Mock container '${poolEntry.name}' action '${action}' succeeded`;
+  }
+
+  const container = docker.getContainer(id);
+  switch (action) {
+    case 'start':
+      await container.start();
+      break;
+    case 'stop':
+      await container.stop();
+      break;
+    case 'restart':
+      await container.restart();
+      break;
+    case 'pause':
+      await container.pause();
+      break;
+    case 'unpause':
+      await container.unpause();
+      break;
+    default:
+      throw new Error(`Unknown container action '${action}'`);
+  }
+  return `Container '${id}' action '${action}' executed successfully`;
+}
+
 // ---------- Socket.IO wiring ----------
 io.on('connection', (socket) => {
-  const guestMode = socket.handshake.auth?.guestMode === true;
+  const reqSession = socket.request?.session;
+  const isAdmin = reqSession && reqSession.auth === true;
+  const guestMode = !isAdmin || socket.handshake.auth?.guestMode === true;
 
-  // Join the appropriate room so polls can target admin vs guest sockets
-  if (guestMode) {
-    socket.join('guest');
-  } else {
+  // Join room based on verified session auth (guests cannot join admin room)
+  if (isAdmin && !guestMode) {
     socket.join('admin');
+  } else {
+    socket.join('guest');
   }
 
   socket.emit('events_snapshot', eventLog);
@@ -604,20 +673,21 @@ io.on('connection', (socket) => {
 
   // Set which containers are visible to guests (admin only)
   socket.on('set_container_visibility', (ids) => {
-    if (guestMode) return; // reject from guests
+    if (!isAdmin) return; // enforce session auth check
     setContainerVisibility(ids);
     io.emit('visibility_updated', { visibleIds: guestConfig.visibleContainerIds });
   });
 
   // Get current visibility config (admin only)
   socket.on('get_visibility_config', () => {
-    if (guestMode) return;
+    if (!isAdmin) return;
     socket.emit('visibility_config', { visibleIds: guestConfig.visibleContainerIds });
   });
 
+  // Container detail (logs, env, ports)
   socket.on('get_container_detail', async (id) => {
     // Enforce visibility in guest mode: reject detail requests for non-visible containers
-    if (guestMode && !isContainerVisible(id)) {
+    if (!isAdmin && !isContainerVisible(id)) {
       socket.emit('container_detail_error', { id, message: 'Container is not visible in guest view' });
       return;
     }
@@ -626,6 +696,22 @@ io.on('connection', (socket) => {
       socket.emit('container_detail', detail);
     } catch (err) {
       socket.emit('container_detail_error', { id, message: err.message });
+    }
+  });
+
+  // Container action (start, stop, restart, pause, unpause - admin only)
+  socket.on('container_action', async ({ id, action }) => {
+    if (!isAdmin) {
+      socket.emit('container_action_result', { ok: false, error: 'Unauthorized: Admin privileges required' });
+      return;
+    }
+    try {
+      const message = await performContainerAction(id, action);
+      socket.emit('container_action_result', { ok: true, id, action, message });
+      pushEvent(`[ADMIN ACTION] ${action.toUpperCase()} :: ${id}`, true);
+      setTimeout(pollContainers, 300);
+    } catch (err) {
+      socket.emit('container_action_result', { ok: false, id, action, error: err.message });
     }
   });
 });

@@ -1153,3 +1153,87 @@ main.guest-mode #guest-last-update { display: inline !important; }
 .table-wrap::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 4px; }
 .events-wrap::-webkit-scrollbar-track,
 .table-wrap::-webkit-scrollbar-track { background: transparent; }
+
+/* ============================================================
+   CONTAINER ACTION BUTTONS (ADMIN CONTROL PANEL)
+   ============================================================ */
+.action-btn-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  background: transparent;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.action-btn.action-start {
+  color: var(--green);
+  border: 1px solid var(--green-dim);
+  background: rgba(61, 220, 132, 0.08);
+}
+.action-btn.action-start:hover {
+  background: rgba(61, 220, 132, 0.25);
+  box-shadow: 0 0 8px rgba(61, 220, 132, 0.3);
+}
+
+.action-btn.action-stop {
+  color: var(--red);
+  border: 1px solid #7a2b28;
+  background: rgba(255, 92, 87, 0.08);
+}
+.action-btn.action-stop:hover {
+  background: rgba(255, 92, 87, 0.25);
+  box-shadow: 0 0 8px rgba(255, 92, 87, 0.3);
+}
+
+.action-btn.action-restart {
+  color: var(--yellow);
+  border: 1px solid #8a7233;
+  background: rgba(255, 216, 102, 0.08);
+}
+.action-btn.action-restart:hover {
+  background: rgba(255, 216, 102, 0.25);
+  box-shadow: 0 0 8px rgba(255, 216, 102, 0.3);
+}
+
+.action-btn.action-pause,
+.action-btn.action-unpause {
+  color: #64b5f6;
+  border: 1px solid #1e88e5;
+  background: rgba(100, 181, 246, 0.08);
+}
+.action-btn.action-pause:hover,
+.action-btn.action-unpause:hover {
+  background: rgba(100, 181, 246, 0.25);
+  box-shadow: 0 0 8px rgba(100, 181, 246, 0.3);
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none !important;
+}
+
+/* Enhanced CRT glowing dot indicators */
+.status-pill.running {
+  box-shadow: 0 0 6px rgba(61, 220, 132, 0.25);
+}
+.status-pill.stopped,
+.status-pill.exited {
+  box-shadow: 0 0 6px rgba(255, 92, 87, 0.25);
+}
+.status-pill.paused {
+  box-shadow: 0 0 6px rgba(255, 216, 102, 0.25);
+}

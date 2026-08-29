@@ -153,6 +153,16 @@ function sparklineSvg(values, maxVal, color, height = 24, width = 120) {
   </svg>`;
 }
 
+function sparkline(values, maxVal) {
+  if (!values || !values.length) return '';
+  const effectiveMax = maxVal > 0 ? maxVal : Math.max(...values, 1);
+  return values.map((v) => {
+    const norm = Math.max(0, Math.min(1, v / effectiveMax));
+    const idx = Math.min(SPARK_CHARS.length - 1, Math.floor(norm * SPARK_CHARS.length));
+    return SPARK_CHARS[idx];
+  }).join('');
+}
+
 // ---------- History update ----------
 function updateHistory(containers) {
   const now = Date.now();
@@ -201,23 +211,45 @@ setInterval(tickClock, 1000);
 tickClock();
 
 // ---------- Connection status + guest live indicator ----------
+function setTableStatus(msg, isError) {
+  const existing = containersBody.querySelector('.empty');
+  if (existing) {
+    existing.textContent = msg;
+    existing.classList.toggle('error', !!isError);
+  }
+}
+
 socket.on('connect', () => {
   if (guestMode) {
     // Guest page uses the dedicated live indicator, not the admin conn-badge
-    document.getElementById('guest-live-indicator').classList.remove('hidden');
+    const gi = document.getElementById('guest-live-indicator');
+    if (gi) gi.classList.remove('hidden');
+    setTableStatus('live — awaiting first update…');
   } else {
     connBadge.textContent = '● CONNECTED';
     connBadge.className = 'badge connected';
+    setTableStatus('connected — awaiting first container update…');
     socket.emit('get_visibility_config');
   }
 });
 
+socket.on('connect_error', () => {
+  if (!guestMode) {
+    connBadge.textContent = '● DISCONNECTED';
+    connBadge.className = 'badge disconnected';
+  }
+  setTableStatus('cannot reach server — retrying…', true);
+});
+
 socket.on('disconnect', () => {
   if (guestMode) {
-    document.getElementById('guest-live-indicator').classList.add('hidden');
+    const gi = document.getElementById('guest-live-indicator');
+    if (gi) gi.classList.add('hidden');
+    setTableStatus('connection lost — retrying…', true);
   } else {
     connBadge.textContent = '● DISCONNECTED';
     connBadge.className = 'badge disconnected';
+    setTableStatus('connection lost — retrying…', true);
   }
 });
 
@@ -322,9 +354,23 @@ function getAlertState(id) {
 }
 
 // ---------- Death detection -> notification + sound ----------
+let audioCtx = null;
+function getAudioContext() {
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) audioCtx = new AudioContextClass();
+  }
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+  return audioCtx;
+}
+document.addEventListener('click', () => { getAudioContext(); }, { once: false });
+
 function playBeep() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioContext();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'square';
@@ -334,7 +380,6 @@ function playBeep() {
     osc.start();
     setTimeout(() => {
       osc.stop();
-      ctx.close();
     }, 180);
   } catch {
     // audio not available in this context - ignore
@@ -435,12 +480,35 @@ function renderDetailPanel(id) {
     ? detail.logs.map((l) => `<div class="log-line">${escapeHtml(l)}</div>`).join('')
     : '(no recent logs)';
 
+  const liveContainer = latestContainers.find((c) => c.id === id);
+  const status = liveContainer ? liveContainer.status : 'UNKNOWN';
+  const isRunning = status === 'RUNNING';
+  const isPaused = status === 'PAUSED';
+
+  let actionBtnsHtml = '';
+  if (!guestMode) {
+    if (isRunning) {
+      actionBtnsHtml = `
+        <button type="button" class="action-btn action-stop" data-action="stop" data-id="${escapeHtml(id)}">■ STOP</button>
+        <button type="button" class="action-btn action-restart" data-action="restart" data-id="${escapeHtml(id)}">↻ RESTART</button>
+        <button type="button" class="action-btn action-pause" data-action="pause" data-id="${escapeHtml(id)}">⏸ PAUSE</button>`;
+    } else if (isPaused) {
+      actionBtnsHtml = `
+        <button type="button" class="action-btn action-unpause" data-action="unpause" data-id="${escapeHtml(id)}">▶ UNPAUSE</button>
+        <button type="button" class="action-btn action-stop" data-action="stop" data-id="${escapeHtml(id)}">■ STOP</button>`;
+    } else {
+      actionBtnsHtml = `
+        <button type="button" class="action-btn action-start" data-action="start" data-id="${escapeHtml(id)}">▶ START</button>`;
+    }
+  }
+
   return `
     <div class="detail-panel">
       <div class="detail-meta">
         <span>DISK (writable layer): <b>${formatBytes(detail.sizeRw)}</b></span>
         <span>ROOT FS: <b>${formatBytes(detail.sizeRootFs)}</b></span>
-        <button type="button" class="refresh-btn" data-refresh="${id}">↻ refresh</button>
+        <button type="button" class="refresh-btn" data-refresh="${escapeHtml(id)}">↻ refresh</button>
+        ${actionBtnsHtml ? `<div class="action-btn-group">${actionBtnsHtml}</div>` : ''}
       </div>
       <div class="detail-section">
         <div class="detail-heading">PORTS</div>
@@ -707,10 +775,10 @@ function renderAdminTable(containers, allContainers) {
       if (guestMode) {
         // Guest sees 8 columns (no toggle, no VIS)
         return `
-          <tr data-id="${c.id}" class="${rowClasses}">
-            <td class="container-id">${c.id}</td>
-            <td class="container-name">${c.name}</td>
-            <td><span class="status-pill ${statusClass}">[${c.status}]</span></td>
+          <tr data-id="${escapeHtml(c.id)}" class="${rowClasses}">
+            <td class="container-id">${escapeHtml(c.id)}</td>
+            <td class="container-name">${escapeHtml(c.name)}</td>
+            <td><span class="status-pill ${statusClass}">[${escapeHtml(c.status)}]</span></td>
             <td>${healthBadge(c.health, c.restartCount)}</td>
             <td class="meter">
               <div>${asciiBar(c.cpu)}${alertBadge}</div>
@@ -724,21 +792,21 @@ function renderAdminTable(containers, allContainers) {
               <div>${formatBytes(c.netRx)} IN / ${formatBytes(c.netTx)} OUT</div>
               <div class="spark">${sparkline(h.netRate)}</div>
             </td>
-            <td>${c.uptime}</td>
+            <td>${escapeHtml(c.uptime)}</td>
           </tr>`;
       }
 
       // Admin view: 10 columns (VIS + toggle + 8 data)
-      const toggleCol = `<td class="col-toggle"><button type="button" class="row-toggle ${isOpen ? 'open' : ''}" data-toggle="${c.id}">${isOpen ? '▾' : '▸'}</button></td>`;
+      const toggleCol = `<td class="col-toggle"><button type="button" class="row-toggle ${isOpen ? 'open' : ''}" data-toggle="${escapeHtml(c.id)}">${isOpen ? '▾' : '▸'}</button></td>`;
       const visCol = `<td class="vis-toggle-col-cell"><span class="vis-indicator ${visible ? 'vis-on' : 'vis-off'}" title="${visible ? 'Visible to guests' : 'Hidden from guests'}"></span></td>`;
 
       const mainRow = `
-        <tr data-id="${c.id}" class="${rowClasses}">
+        <tr data-id="${escapeHtml(c.id)}" class="${rowClasses}">
           ${visCol}
           ${toggleCol}
-          <td class="container-id">${c.id}</td>
-          <td class="container-name" data-toggle="${c.id}">${c.name}</td>
-          <td><span class="status-pill ${statusClass}">[${c.status}]</span></td>
+          <td class="container-id">${escapeHtml(c.id)}</td>
+          <td class="container-name" data-toggle="${escapeHtml(c.id)}">${escapeHtml(c.name)}</td>
+          <td><span class="status-pill ${statusClass}">[${escapeHtml(c.status)}]</span></td>
           <td>${healthBadge(c.health, c.restartCount)}</td>
           <td class="meter">
             <div>${asciiBar(c.cpu)}${alertBadge}</div>
@@ -752,7 +820,7 @@ function renderAdminTable(containers, allContainers) {
             <div>${formatBytes(c.netRx)} IN / ${formatBytes(c.netTx)} OUT</div>
             <div class="spark">${sparkline(h.netRate)}</div>
           </td>
-          <td>${c.uptime}</td>
+          <td>${escapeHtml(c.uptime)}</td>
         </tr>`;
 
       const detailRow = isOpen
@@ -801,6 +869,17 @@ updateSortHeaderStyles();
 
 containersBody.addEventListener('click', (e) => {
   if (guestMode) return;
+  const actionBtn = e.target.closest('[data-action]');
+  if (actionBtn) {
+    const id = actionBtn.dataset.id;
+    const action = actionBtn.dataset.action;
+    if (confirm(`Execute ${action.toUpperCase()} on container ${id}?`)) {
+      actionBtn.disabled = true;
+      actionBtn.textContent = 'EXECUTING...';
+      socket.emit('container_action', { id, action });
+    }
+    return;
+  }
   const refreshBtn = e.target.closest('[data-refresh]');
   if (refreshBtn) {
     const id = refreshBtn.dataset.refresh;
@@ -819,6 +898,18 @@ containersBody.addEventListener('click', (e) => {
     if (!detailCache.has(id)) requestDetail(id);
   }
   renderContainers();
+});
+
+socket.on('container_action_result', (res) => {
+  if (guestMode) return;
+  if (res.ok) {
+    renderEvent({ time: new Date().toISOString(), line: `ACTION SUCCESS: ${res.message}` });
+    detailCache.delete(res.id);
+    requestDetail(res.id);
+  } else {
+    alert(`Action failed: ${res.error}`);
+    renderEvent({ time: new Date().toISOString(), line: `ACTION ERROR: ${res.error}` });
+  }
 });
 
 socket.on('container_detail', (detail) => {

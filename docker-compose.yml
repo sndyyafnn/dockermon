@@ -5,14 +5,17 @@ services:
     container_name: docker-monitor
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3100:3100"
     environment:
-      - PORT=3000
+      - PORT=3100
       - POLL_INTERVAL_MS=2000
+      - ADMIN_USER=admin
+      - ADMIN_PASS=admin
     volumes:
       # Required: lets the app talk to the Docker daemon to list containers,
-      # read stats, and stream events. Read-only is enough.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # read stats, stream events, and manage container lifecycle for Admin.
+      - /var/run/docker.sock:/var/run/docker.sock
+
 
       # Optional: uncomment the two lines below for more accurate HOST-level
       # CPU / RAM / disk numbers in the "System Resources" panel (otherwise
