@@ -58,7 +58,14 @@ function setContainerVisibility(ids) {
 }
 
 function isContainerVisible(id) {
-  return guestConfig.visibleContainerIds.includes(String(id));
+  if (!guestConfig.visibleContainerIds || !guestConfig.visibleContainerIds.length) {
+    return true; // Default to visible if config array is empty
+  }
+  const idStr = String(id).toLowerCase();
+  return guestConfig.visibleContainerIds.some((vId) => {
+    const vStr = String(vId).toLowerCase();
+    return idStr === vStr || idStr.startsWith(vStr) || vStr.startsWith(idStr);
+  });
 }
 
 const app = express();
@@ -79,6 +86,9 @@ const sessionMiddleware = session({
 
 app.use(sessionMiddleware);
 io.engine.use(sessionMiddleware);
+io.use((socket, next) => {
+  sessionMiddleware(socket.request, socket.request.res || {}, next);
+});
 
 // ---------- Body parsing (required for JSON POST bodies) ----------
 app.use(express.json());
@@ -668,6 +678,7 @@ io.on('connection', (socket) => {
 
   socket.emit('events_snapshot', eventLog);
   pollSystemResources();
+  pollContainers();
 
   // ---- Admin-only events ----
 

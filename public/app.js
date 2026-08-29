@@ -28,18 +28,18 @@ let guestMode = isGuestPage;
 let isAuthenticated = !guestMode;
 
 // ---------- Init: apply guest mode UI classes if on /guest page ----------
+const adminPanelEl = document.getElementById('admin-telemetry-panel');
+const guestPanelEl = document.getElementById('guest-telemetry-panel');
+
 if (isGuestPage) {
-  mainEl.classList.add('guest-mode');
-  topbarRightEl.classList.add('topbar-guest');
-  titlebarEl.classList.add('titlebar-guest');
-  footerEl.classList.add('footer-guest');
-  // Hide admin conn-badge on guest page
+  if (adminPanelEl) adminPanelEl.classList.add('hidden');
+  if (guestPanelEl) guestPanelEl.classList.remove('hidden');
   if (connBadge) connBadge.style.display = 'none';
-  guestBannerEl.classList.remove('hidden');
-  document.querySelectorAll('.guest-overview-panel, .guest-cards-panel, .guest-resources-panel, #guest-live-indicator, #guest-last-update').forEach(el => el.classList.remove('hidden'));
+  if (guestBannerEl) guestBannerEl.classList.remove('hidden');
 } else {
-  // Admin page: ensure guest banner stays hidden
-  guestBannerEl.classList.add('hidden');
+  if (adminPanelEl) adminPanelEl.classList.remove('hidden');
+  if (guestPanelEl) guestPanelEl.classList.add('hidden');
+  if (guestBannerEl) guestBannerEl.classList.add('hidden');
 }
 
 // ---------- Guest mode UI ----------
@@ -619,119 +619,39 @@ function renderVisibilityToggles(containers) {
 
 // ---------- Guest card rendering ----------
 function renderGuestCards(containers) {
-  const grid = document.getElementById('guest-cards-grid');
-  const countEl = document.getElementById('guest-cards-count');
-  countEl.textContent = `${containers.length} service${containers.length !== 1 ? 's' : ''}`;
+  const grid = document.getElementById('guest-cards');
+  const countEl = document.getElementById('guest-services-count');
+  if (countEl) countEl.textContent = `${containers.length} PUBLIC SERVICES`;
 
+  if (!grid) return;
   if (!containers.length) {
-    grid.innerHTML = '<div class="guest-empty-state">no services visible</div>';
+    grid.innerHTML = '<div style="color:var(--text-muted); font-family:var(--font-mono); padding:20px;">NO PUBLIC SERVICES VISIBLE</div>';
     return;
   }
 
   grid.innerHTML = containers.map((c) => {
-    const h = history.get(c.id) || { cpu: [], mem: [], netRate: [] };
-    const statusClass = c.status.toLowerCase();
     const isRunning = c.status === 'RUNNING';
-    const health = c.health === 'none' ? '—' : c.health;
-    const healthClass = c.health === 'healthy' ? 'healthy' : c.health === 'unhealthy' ? 'unhealthy' : c.health === 'starting' ? 'starting' : 'none';
+    const statusClass = isRunning ? 'running' : 'stopped';
     const runtimeStr = c.uptime && c.uptime !== '-' ? c.uptime : 'n/a';
 
-    // CPU gauge SVG
-    const cpuPct = Math.max(0, Math.min(100, c.cpu || 0));
-    const cpuColor = cpuPct >= 85 ? '#ff5c57' : cpuPct >= 65 ? '#ffd866' : '#3ddc84';
-    const cpuAngle = (cpuPct / 100) * 180;
-    const cpuGauge = `
-      <svg class="guest-gauge" viewBox="0 0 60 34">
-        <path class="gauge-track" d="M 5 28 A 25 25 0 0 1 55 28" />
-        <path class="gauge-fill" d="M 5 28 A 25 25 0 0 1 55 28" stroke="${cpuColor}"
-              stroke-dasharray="${Math.sin(Math.PI * cpuPct / 100) * 25} 999"
-              stroke-dashoffset="${50 - Math.sin(Math.PI * cpuPct / 100) * 25}"
-              stroke-linecap="round" />
-        <text x="30" y="33" text-anchor="middle" class="gauge-label">${cpuPct.toFixed(0)}%</text>
-      </svg>`;
-
-    // MEM gauge SVG
-    const memPct = Math.max(0, Math.min(100, c.mem || 0));
-    const memColor = memPct >= 85 ? '#ff5c57' : memPct >= 65 ? '#ffd866' : '#3ddc84';
-    const memAngle = (memPct / 100) * 180;
-    const memGauge = `
-      <svg class="guest-gauge" viewBox="0 0 60 34">
-        <path class="gauge-track" d="M 5 28 A 25 25 0 0 1 55 28" />
-        <path class="gauge-fill" d="M 5 28 A 25 25 0 0 1 55 28" stroke="${memColor}"
-              stroke-dasharray="${Math.sin(Math.PI * memPct / 100) * 25} 999"
-              stroke-dashoffset="${50 - Math.sin(Math.PI * memPct / 100) * 25}"
-              stroke-linecap="round" />
-        <text x="30" y="33" text-anchor="middle" class="gauge-label">${memPct.toFixed(0)}%</text>
-      </svg>`;
-
-    // CPU sparkline
-    const cpuSpark = sparklineSvg(h.cpu, 100, '#3ddc84', 28, 160);
-    // MEM sparkline
-    const memSpark = sparklineSvg(h.mem, 100, '#3ddc84', 28, 160);
-
-    // Network info
-    const netRxRate = c.netRx ? formatRate(c.netRx / 2) : '0.0MB/s'; // rough rate estimate
-    const netTxRate = c.netTx ? formatRate(c.netTx / 2) : '0.0MB/s';
-    const netTotal = `${formatBytes(c.netRx)} ↓ / ${formatBytes(c.netTx)} ↑`;
-
-    const alertState = getAlertState(c.id);
-    const alertClass = alertState ? alertState.level : '';
-
-    // Health dot color
-    const healthDotColor = c.health === 'healthy' ? '#3ddc84' : c.health === 'unhealthy' ? '#ff5c57' : c.health === 'starting' ? '#ffd866' : '#5f7568';
-
-    // Status indicator
-    const statusDot = isRunning
-      ? '<span class="status-dot running"></span>'
-      : '<span class="status-dot stopped"></span>';
-
     return `
-      <div class="guest-card ${alertClass}" data-id="${c.id}">
+      <div class="guest-card">
         <div class="guest-card-header">
-          <div class="guest-card-name-row">
-            ${statusDot}
-            <span class="guest-card-name">${escapeHtml(c.name)}</span>
-          </div>
-          <div class="guest-card-status-row">
-            <span class="guest-status-pill ${statusClass}">${isRunning ? '● ONLINE' : '○ OFFLINE'}</span>
-            <span class="guest-health-badge ${healthClass}">${health}</span>
-            ${c.restartCount > 0 ? `<span class="guest-restart-badge">↻${c.restartCount}</span>` : ''}
-          </div>
+          <span class="guest-card-name">${escapeHtml(c.name)}</span>
+          <span class="status-pill ${statusClass}">${isRunning ? '● ONLINE' : '○ OFFLINE'}</span>
         </div>
         <div class="guest-card-body">
-          <div class="guest-metrics-row">
-            <div class="guest-metric-block">
-              <div class="guest-metric-label">CPU</div>
-              <div class="guest-gauge-row">
-                ${cpuGauge}
-                <div class="guest-metric-spark">${cpuSpark}</div>
-              </div>
-            </div>
-            <div class="guest-metric-block">
-              <div class="guest-metric-label">MEM</div>
-              <div class="guest-gauge-row">
-                ${memGauge}
-                <div class="guest-metric-spark">${memSpark}</div>
-              </div>
-            </div>
+          <div style="margin-bottom:8px;">
+            <div style="font-size:10px; color:var(--text-muted); margin-bottom:2px;">CPU LOAD</div>
+            ${renderSegmentedMeter(c.cpu, 14)}
           </div>
-          <div class="guest-info-row">
-            <div class="guest-info-item">
-              <span class="guest-info-label">UPTIME</span>
-              <span class="guest-info-value">${runtimeStr}</span>
-            </div>
-            <div class="guest-info-item">
-              <span class="guest-info-label">NETWORK</span>
-              <span class="guest-info-value">${netTotal}</span>
-            </div>
-            <div class="guest-info-item">
-              <span class="guest-info-label">RX RATE</span>
-              <span class="guest-info-value">${netRxRate}</span>
-            </div>
-            <div class="guest-info-item">
-              <span class="guest-info-label">TX RATE</span>
-              <span class="guest-info-value">${netTxRate}</span>
-            </div>
+          <div style="margin-bottom:8px;">
+            <div style="font-size:10px; color:var(--text-muted); margin-bottom:2px;">MEM USAGE</div>
+            ${renderSegmentedMeter(c.mem, 14)}
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); border-top:1px solid var(--border-dim); padding-top:6px; margin-top:8px;">
+            <span>HEALTH: <b style="color:var(--text-primary);">${escapeHtml(c.health)}</b></span>
+            <span>UPTIME: <b style="color:var(--text-primary);">${escapeHtml(runtimeStr)}</b></span>
           </div>
         </div>
       </div>`;

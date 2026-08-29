@@ -660,6 +660,83 @@ body.telemetry-body {
 .f-cursor { animation: blink 1s step-start infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
+/* ============================================================
+   04. GUEST PUBLIC SERVICE TELEMETRY CARDS
+   ============================================================ */
+
+.guest-telemetry-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px;
+  gap: 16px;
+}
+
+.guest-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  border-bottom: 1px solid var(--border-dim);
+  padding-bottom: 12px;
+}
+
+.guest-title {
+  font-family: var(--font-title);
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: 1.5px;
+}
+
+.guest-count {
+  font-size: 11px;
+  color: var(--accent-orange);
+  font-weight: 700;
+}
+
+.guest-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.guest-card {
+  background: #050507;
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.2s ease;
+}
+
+.guest-card:hover {
+  border-color: var(--border-bright);
+}
+
+.guest-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+}
+
+.guest-card-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.guest-card-body {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+}
+
 /* Scrollbars */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
